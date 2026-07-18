@@ -4,11 +4,39 @@ Factorio 2.1 mod: when higher-quality versions of placed buildings sit in a logi
 network's storage, lower-quality placed buildings in that network are marked for upgrade
 so construction bots swap them out.
 
-**Read `DESIGN.md` before changing core behavior** — it documents the accounting model,
-the timeout-instead-of-reconciliation approach, the performance model, and a full
-edge-case catalog. The architecture in one line: *events maintain the candidate index,
-scan cycles do all matching statelessly, and the entity's own upgrade mark is the source
-of truth (the ledger is just a cache with timestamps).*
+The architecture in one line: *events maintain the candidate index, scan cycles do all
+matching statelessly, and the entity's own upgrade mark is the source of truth (the
+ledger is just a cache with timestamps).* `README.md` covers player-facing intent and
+behavior.
+
+## Design invariants (read before changing core behavior)
+
+- **The world is the source of truth.** Upgrade orders live on entities
+  (`to_be_upgraded()` / `get_upgrade_target()`); the ledger is always rebuildable by
+  adopting marks from a world rescan. Missed events make cached numbers stale until
+  the next scan, never wrong forever.
+- **Accounting is conservative, with no in-flight tracking.** Supply is what's
+  physically in chests (one `get_contents` call per network); outstanding ledger
+  orders are subtracted whole. The brief double-count while a bot is in flight only
+  ever undercounts, then self-corrects on delivery.
+- **Timeout instead of reconciliation.** There are no events for network content
+  changes, so starved orders simply expire after a configurable timeout. Orders that
+  were healthy-but-slow get re-marked by the same scan while supply persists — same
+  outcome as deficit math, none of the bookkeeping.
+- **Player marks are invisible demand.** Upgrade-planner marks, blueprint ghosts, and
+  other mods' orders all just consume supply; they are never tracked, cancelled, or
+  retargeted. "Ours" means "in the ledger" — only ledger orders expire.
+- **Network identity is transient.** `LuaLogisticNetwork` refs and ids invalidate on
+  any merge/split; nothing network-shaped is ever stored. Each scan re-derives
+  networks fresh; misattribution after a split just times out.
+- **API cost scales with matches made, never with entity count.** Iteration is
+  supply-centric (most networks stock no upgrade-grade items and exit after one
+  call); coverage is pure-Lua AABB tests against per-cycle roboport boxes; cached
+  candidate positions are hints, re-read from the entity at mark time, with a
+  rotating refresh slice bounding staleness.
+- **Deferred v2 idea:** ghost quality retargeting (retarget blueprint ghosts to the
+  best available quality). The ledger and index shapes were chosen to accommodate it
+  as a new order kind, not a parallel system.
 
 ## Engineering principles
 
@@ -17,8 +45,8 @@ of truth (the ledger is just a cache with timestamps).*
 - No prefixes on setting names.
 - No exclusion machinery (mod lists, surface filters, Factorissimo integration): bots
   perform the upgrades natively, so entities other mods manage are handled fine. This
-  is deliberate (July 2026) — don't reintroduce it from the reference mod or DESIGN.md,
-  which predate the decision.
+  is deliberate (July 2026) — don't reintroduce it from the reference mod, which
+  predates the decision.
 - No per-entity-type enable settings: all tracked types are always on
   (`tracked_entity_types` in `control.lua`). Deliberate (July 2026).
 - No PickerDollies/teleport-mod event integration: cached positions are hints only —
@@ -35,7 +63,7 @@ of truth (the ledger is just a cache with timestamps).*
   (`storage.candidates[surface][item][tier]`), rotating position-refresh slice
 - `scripts/qualities.lua` — quality chain cached as ordered "tiers"; hidden-quality
   (skip/sticky) policy lives here only
-- `settings.lua`, `locale/en/locale.cfg`, `info.json`, `changelog.txt`
+- `settings.lua`, `locale/en/locale.cfg`, `info.json`, `changelog.txt`, `README.md`
 - `reference/factorio-quality-control/` — gitignored vendored copy of the author's
   Quality Control mod, kept for pattern reference only
 
@@ -48,12 +76,14 @@ the local Factorio mods folder.
 
 - `LuaLogisticNetwork.get_contents(member?)` — `member` accepts only `"storage"` or
   `"providers"`; returns an array of `{name, quality, count}` where `quality` is a
-  **string** prototype name. There is no buffer-chest member (this resolved DESIGN.md
-  open question 2; requester/buffer contents are never counted).
+  **string** prototype name. There is no buffer-chest member; requester/buffer
+  contents are never counted.
 - `order_upgrade{target={name=..., quality=...}, force=...}` supports same-name
   quality-only upgrades; `get_upgrade_target()` returns (prototype, quality).
 - `on_object_destroyed.useful_id` is the entity's `unit_number`.
 - `remote.call` is forbidden in `on_load`.
+- Still unverified in-game: that construction bots pull upgrade items from storage and
+  provider chests as expected. If orders stall despite stock, check this first.
 
 ## Localization
 

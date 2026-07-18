@@ -84,7 +84,6 @@ PACKAGE_EXCLUSIONS=(
     '.git'
     'assets*'
     'mod-description.md'
-    'DESIGN.md'
     'plans*'
     'AGENTS.md'
     'CLAUDE.md'
