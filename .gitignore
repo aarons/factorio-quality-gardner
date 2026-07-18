@@ -1,1 +1,5 @@
 reference
+archive
+*.zip
+tests/venv
+tests/__pycache__

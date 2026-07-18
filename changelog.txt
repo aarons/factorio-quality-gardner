@@ -1,0 +1,10 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.1.0
+Date: 17. 07. 2026
+  Features:
+    - Initial release. Buildings are marked for upgrade when higher-quality versions of them sit
+      in the logistic network's storage chests, and construction bots swap them out.
+    - Worst-quality buildings are upgraded first, straight to the best quality on hand.
+    - Orders that starve (supply taken by players, blueprints, or other demand) are automatically
+      cancelled after a configurable timeout, keeping alerts clean.
+    - Per-category entity toggles, supply reserve, and scan cadence settings.
