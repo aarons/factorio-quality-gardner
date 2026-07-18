@@ -209,11 +209,10 @@ design tolerates stale positions in layers:
 - *The failure that needs active repair* is the inverse — a stale position wrongly
   filtering an in-coverage entity out, forever. Fix: refresh a small rotating slice
   of the index each cycle (amortized ~free), bounding staleness.
-- *Picker Dollies lineage mods expose a custom moved-entity event* via
-  `remote.call("PickerDollies", "dolly_moved_entity_id")` — subscribe when the
-  interface is present and the cache becomes exactly correct; verify Even Pickier
-  Dollies still exports it. The rotating refresh remains as the backstop for any
-  mover that truly raises nothing.
+
+These two layers are sufficient, so no mover event is subscribed (a PickerDollies
+`dolly_moved_entity_id` integration existed initially and was removed July 2026 —
+it only tightened cache freshness the refresh slice already bounds).
 
 ### 3. Supply-centric iteration (why not entity-centric)
 
@@ -318,13 +317,12 @@ gate doing its job.
 | C3 | Modules keep their quality after upgrade | Native transfer keeps them; optional later feature could garden modules too (v2) |
 | C4 | Lamp/accumulator/silo runtime state lost on swap | Restore on completion (known-state capture list) |
 | C5 | Hidden/shiny qualities | Walk `quality.next` with skip/sticky settings |
-| C6 | Infrastructure entities (poles, lamps, combinators) | Per-category startup settings; infrastructure defaults follow reference mod conventions |
-| C7 | Entity teleported without events (Even Pickier Dollies etc.) | Position cache is a hint: authoritative re-read at mark time, rotating refresh slice, PickerDollies remote event when available |
+| C6 | Infrastructure entities (poles, lamps, combinators) | Always tracked like everything else — no per-category settings (July 2026 decision) |
+| C7 | Entity teleported without events (Even Pickier Dollies etc.) | Position cache is a hint: authoritative re-read at mark time, rotating refresh slice |
 
 ## Settings sketch
 
 - Scan interval (runtime-global); batch size per tick
-- Per-category entity toggles (reuse reference mod's map)
 - Source chests: storage only (default) / + passive providers / + buffers
 - Reserve count — keep at least N of any item-quality in storage (single global int,
   default 0)

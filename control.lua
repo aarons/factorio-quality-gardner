@@ -10,71 +10,66 @@ local qualities = require("scripts.qualities")
 local index = require("scripts.index")
 local gardener = require("scripts.gardener")
 
--- Entity type -> the startup setting that enables tracking it
-local entity_to_setting_map = {
+-- Entity types tracked as upgrade candidates
+local tracked_entity_types = {
   -- Production
-  ["assembling-machine"] = "enable-assembly-machines",
-  ["furnace"] = "enable-furnaces",
-  ["rocket-silo"] = "enable-rocket-silos",
-  ["agricultural-tower"] = "enable-agricultural-towers",
-  ["mining-drill"] = "enable-mining-drills",
+  "assembling-machine",
+  "furnace",
+  "rocket-silo",
+  "agricultural-tower",
+  "mining-drill",
 
   -- Electrical infrastructure
-  ["electric-pole"] = "enable-poles",
-  ["solar-panel"] = "enable-solar-panels",
-  ["accumulator"] = "enable-accumulators",
-  ["generator"] = "enable-generators",
-  ["reactor"] = "enable-reactors",
-  ["fusion-reactor"] = "enable-reactors",
-  ["fusion-generator"] = "enable-generators",
-  ["boiler"] = "enable-boilers",
-  ["heat-pipe"] = "enable-heat-pipes",
-  ["power-switch"] = "enable-power-switches",
-  ["lightning-attractor"] = "enable-lightning-rods",
+  "electric-pole",
+  "solar-panel",
+  "accumulator",
+  "generator",
+  "reactor",
+  "fusion-reactor",
+  "fusion-generator",
+  "boiler",
+  "heat-pipe",
+  "power-switch",
+  "lightning-attractor",
 
   -- Defense
-  ["turret"] = "enable-turrets",
-  ["ammo-turret"] = "enable-turrets",
-  ["electric-turret"] = "enable-turrets",
-  ["fluid-turret"] = "enable-turrets",
-  ["artillery-turret"] = "enable-turrets",
-  ["wall"] = "enable-defense-walls-and-gates",
-  ["gate"] = "enable-defense-walls-and-gates",
+  "turret",
+  "ammo-turret",
+  "electric-turret",
+  "fluid-turret",
+  "artillery-turret",
+  "wall",
+  "gate",
 
   -- Other
-  ["lamp"] = "enable-lamps",
-  ["arithmetic-combinator"] = "enable-combinators-and-speakers",
-  ["decider-combinator"] = "enable-combinators-and-speakers",
-  ["constant-combinator"] = "enable-combinators-and-speakers",
-  ["programmable-speaker"] = "enable-combinators-and-speakers",
-  ["lab"] = "enable-labs",
-  ["roboport"] = "enable-roboports",
-  ["beacon"] = "enable-beacons",
-  ["pump"] = "enable-pumps",
-  ["offshore-pump"] = "enable-pumps",
-  ["radar"] = "enable-radar",
-  ["inserter"] = "enable-inserters",
+  "lamp",
+  "arithmetic-combinator",
+  "decider-combinator",
+  "constant-combinator",
+  "programmable-speaker",
+  "lab",
+  "roboport",
+  "beacon",
+  "pump",
+  "offshore-pump",
+  "radar",
+  "inserter",
 }
 
 local function build_and_store_config()
   local is_tracked_type = {}
-  local all_tracked_types = {}
-  for entity_type, setting_name in pairs(entity_to_setting_map) do
-    if settings.startup[setting_name].value then
-      is_tracked_type[entity_type] = true
-      all_tracked_types[#all_tracked_types + 1] = entity_type
-    end
+  for _, entity_type in ipairs(tracked_entity_types) do
+    is_tracked_type[entity_type] = true
   end
   storage.config = {
     is_tracked_type = is_tracked_type,
-    all_tracked_types = all_tracked_types,
+    all_tracked_types = tracked_entity_types,
   }
 end
 
 -- Full world rescan: rebuild the candidate index and adopt existing upgrade
 -- marks into the ledger (world state is the source of truth)
 local function rescan_world()
-  if #storage.config.all_tracked_types == 0 then return end
   for _, surface in pairs(game.surfaces) do
     local entities = surface.find_entities_filtered{
       type = storage.config.all_tracked_types,
@@ -135,27 +130,6 @@ local function register_event_handlers()
       register_main_loop()
     end
   end)
-
-  -- PickerDollies-lineage teleports (id resolved at init, since remote.call
-  -- is not allowed in on_load; registration itself is)
-  if storage.dolly_event_id then
-    script.on_event(storage.dolly_event_id, function(event)
-      gardener.on_entity_moved(event.moved_entity)
-    end)
-  end
-end
-
--- Resolve the moved-entity event id from any PickerDollies-lineage mod.
--- Must not be called from on_load (uses remote.call).
-local function resolve_dolly_event_id()
-  storage.dolly_event_id = nil
-  for _, interface_name in ipairs({"PickerDollies", "EvenPickierDollies"}) do
-    local interface = remote.interfaces[interface_name]
-    if interface and interface["dolly_moved_entity_id"] then
-      storage.dolly_event_id = remote.call(interface_name, "dolly_moved_entity_id")
-      return
-    end
-  end
 end
 
 -- Initialization ----------------------------------------------------------
@@ -172,7 +146,6 @@ local function initialize(command)
   index.init_storage()
   gardener.init_storage()
   qualities.initialize()
-  resolve_dolly_event_id()
   rescan_world()
   storage.scan_interval_ticks = settings.global["scan-interval-seconds"].value * 60
   register_event_handlers()

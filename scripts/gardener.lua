@@ -457,25 +457,6 @@ function gardener.on_robot_built_entity(event)
   end
 end
 
--- PickerDollies-style teleports: keep cached positions exact
-function gardener.on_entity_moved(entity)
-  if not (entity and entity.valid) then return end
-  index.update_position(entity)
-  local unit_number = entity.unit_number
-  local entry = unit_number and storage.ledger[unit_number]
-  if entry then
-    local old_key = position_key(entry.surface_index, entry.x, entry.y)
-    if storage.ledger_by_position[old_key] == unit_number then
-      storage.ledger_by_position[old_key] = nil
-    end
-    local position = entity.position
-    entry.surface_index = entity.surface.index
-    entry.x = position.x
-    entry.y = position.y
-    storage.ledger_by_position[position_key(entry.surface_index, position.x, position.y)] = unit_number
-  end
-end
-
 -- Recovery path (on_configuration_changed / quality-gardener-init): adopt an
 -- existing upgrade mark into the ledger when it looks like ours — same name,
 -- higher quality target. Indistinguishable player marks get adopted too; ones

@@ -19,6 +19,11 @@ of truth (the ledger is just a cache with timestamps).*
   perform the upgrades natively, so entities other mods manage are handled fine. This
   is deliberate (July 2026) — don't reintroduce it from the reference mod or DESIGN.md,
   which predate the decision.
+- No per-entity-type enable settings: all tracked types are always on
+  (`tracked_entity_types` in `control.lua`). Deliberate (July 2026).
+- No PickerDollies/teleport-mod event integration: cached positions are hints only —
+  the mark-time position re-read plus the rotating refresh slice already tolerate
+  untracked teleports. Deliberate (July 2026) — don't resubscribe to dolly events.
 - No pytest/test suite — validation is luacheck via `./validate.sh` only.
 
 ## Repository structure
@@ -48,8 +53,7 @@ the local Factorio mods folder.
 - `order_upgrade{target={name=..., quality=...}, force=...}` supports same-name
   quality-only upgrades; `get_upgrade_target()` returns (prototype, quality).
 - `on_object_destroyed.useful_id` is the entity's `unit_number`.
-- `remote.call` is forbidden in `on_load` — the PickerDollies event id is resolved at
-  init and stored in `storage.dolly_event_id`.
+- `remote.call` is forbidden in `on_load`.
 
 ## Localization
 

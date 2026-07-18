@@ -99,29 +99,6 @@ function index.remove(entity)
   index.remove_key(entity.surface.index, item_name, tier, unit_number)
 end
 
--- Update the cached position for a moved entity (PickerDollies-style remotes)
-function index.update_position(entity)
-  local unit_number = entity.unit_number
-  if not unit_number then return end
-  local item_name = index.placing_item_name(entity)
-  local tier = qualities.tier_of(entity.quality.name)
-  if not item_name or not tier then return end
-
-  local by_item = storage.candidates[entity.surface.index]
-  local by_tier = by_item and by_item[item_name]
-  local bucket = by_tier and by_tier[tier]
-  local record = bucket and bucket[unit_number]
-  if record then
-    local position = entity.position
-    record.x = position.x
-    record.y = position.y
-  else
-    -- Moved across surfaces (or wasn't indexed): stale records elsewhere are
-    -- cleaned by the refresh slice; just (re-)add under the current keys.
-    index.add(entity)
-  end
-end
-
 -- Candidates for (surface, item): tier -> bucket, or nil
 function index.get_buckets(surface_index, item_name)
   local by_item = storage.candidates[surface_index]
