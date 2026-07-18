@@ -36,21 +36,13 @@ data:extend({
         order = "a-3"
     },
     {
-        type = "string-setting",
-        name = "upgrade-targeting",
-        setting_type = "runtime-global",
-        default_value = "direct-to-best",
-        allowed_values = {"direct-to-best", "single-step"},
-        order = "a-4"
-    },
-    {
         type = "double-setting",
         name = "order-timeout-minutes",
         setting_type = "runtime-global",
         default_value = 3,
         minimum_value = 0,
         maximum_value = 600,
-        order = "a-5"
+        order = "a-4"
     },
     {
         type = "bool-setting",

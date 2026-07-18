@@ -17,7 +17,7 @@ local chain = {}          -- tier -> LuaQualityPrototype
 local tier_by_name = {}   -- quality prototype name -> tier
 local target_ok = {}      -- tier -> may be upgraded INTO (above normal, not skip-hidden)
 local candidate_ok = {}   -- tier -> entities at this tier may be upgraded out of
-local next_allowed = {}   -- tier -> lowest higher tier that is target_ok (single-step target)
+local next_allowed = {}   -- tier -> lowest higher tier that is target_ok (drives candidate_ok)
 
 function qualities.initialize()
   local skip_hidden = settings.startup["skip-hidden-qualities"].value
@@ -67,10 +67,6 @@ end
 
 function qualities.is_target_tier(tier)
   return target_ok[tier] or false
-end
-
-function qualities.next_allowed_tier(tier)
-  return next_allowed[tier]
 end
 
 return qualities

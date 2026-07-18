@@ -213,10 +213,8 @@ local function subtract_outstanding(supply, surface_index, boxes)
 end
 
 -- Upgrade upgrades: when better supply appears above a pending order's
--- target, re-issue the order at the higher target (ours only, direct mode
--- only — single-step targets are already the next tier by definition).
+-- target, re-issue the order at the higher target (ours only).
 local function raise_pending_orders(supply, surface_index, boxes, state)
-  if settings.global["upgrade-targeting"].value == "single-step" then return end
   for _, entry in pairs(storage.ledger) do
     if state.used >= state.budget then return end
     if entry.surface_index == surface_index then
@@ -259,13 +257,7 @@ local function process_item(item_name, available_by_tier, buckets, boxes, surfac
   if #supply_tiers == 0 then return end
   table.sort(supply_tiers, function(a, b) return a > b end)
 
-  local single_step = settings.global["upgrade-targeting"].value == "single-step"
   local function pick_target(candidate_tier)
-    if single_step then
-      local tier = qualities.next_allowed_tier(candidate_tier)
-      if tier and (available_by_tier[tier] or 0) > 0 then return tier end
-      return nil
-    end
     for _, tier in ipairs(supply_tiers) do
       if tier <= candidate_tier then return nil end
       if available_by_tier[tier] > 0 then return tier end

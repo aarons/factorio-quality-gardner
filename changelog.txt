@@ -7,4 +7,4 @@ Date: 17. 07. 2026
     - Worst-quality buildings are upgraded first, straight to the best quality on hand.
     - Orders that starve (supply taken by players, blueprints, or other demand) are automatically
       cancelled after a configurable timeout, keeping alerts clean.
-    - Supply reserve, upgrade targeting, and scan cadence settings.
+    - Supply reserve and scan cadence settings.

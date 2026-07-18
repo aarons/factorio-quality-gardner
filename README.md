@@ -13,8 +13,8 @@ manual upgrade-planner passes needed.
 
 - **Worst first.** The lowest-quality buildings are upgraded before better ones, so
   each item delivers the biggest improvement.
-- **Direct to best** (default). A normal building jumps straight to the best quality on
-  hand — one bot trip. A single-step mode (one tier at a time) is available.
+- **Direct to best.** A normal building jumps straight to the best quality on
+  hand — one bot trip, no intermediate items.
 - **The cascade is free.** Upgrading a building returns its lower-quality item to
   storage, which can then lift an even worse building. Quality ripples down through
   the base with no extra logic.
@@ -49,7 +49,6 @@ per-type toggles.
 | Max orders per scan | 30 | Spreads large jobs over several scans |
 | Supply source | storage | Optionally also passive/active providers; requesters and buffers never count |
 | Reserve per item | 0 | Spares kept untouched per item-quality |
-| Upgrade targeting | direct-to-best | Or single-step |
 | Order timeout | 3 min | 0 = never cancel (vanilla pending-order behavior) |
 | Console notifications | on | Per-player aggregate message |
 | Hidden-quality handling | — | Skip and/or sticky startup options for mods like Quality++ Shiny |
