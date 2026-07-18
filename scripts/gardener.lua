@@ -433,7 +433,7 @@ end
 function gardener.on_robot_built_entity(event)
   local entity = event.entity
   if not entity.valid then return end
-  if not storage.config.is_tracked_type[entity.type] then return end
+  if not index.placing_item_name(entity) then return end
 
   index.add(entity)
 

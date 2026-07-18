@@ -22,8 +22,10 @@ manual upgrade-planner passes needed.
   candidate for the next tier; over months of play a machine can walk
   normal → rare → legendary as stock evolves around it.
 
-All placeable building types are covered — production, power, defense, logistics,
-circuits. There are no per-type toggles.
+Everything placeable and upgradable is covered — assemblers down to belts, pipes, and
+poles. Coverage is derived from prototypes (anything placed from an item that the game
+allows upgrading), so modded buildings are included automatically. There are no
+per-type toggles.
 
 ## Behavior details
 

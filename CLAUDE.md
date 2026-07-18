@@ -47,8 +47,9 @@ behavior.
   perform the upgrades natively, so entities other mods manage are handled fine. This
   is deliberate (July 2026) — don't reintroduce it from the reference mod, which
   predates the decision.
-- No per-entity-type enable settings: all tracked types are always on
-  (`tracked_entity_types` in `control.lua`). Deliberate (July 2026).
+- No per-entity-type enable settings and no hand-maintained type list: candidacy is
+  derived from prototypes in `build_and_store_config` (has a placing item, not
+  flagged `not-upgradable`) — belts and pipes included. Deliberate (July 2026).
 - No PickerDollies/teleport-mod event integration: cached positions are hints only —
   the mark-time position re-read plus the rotating refresh slice already tolerate
   untracked teleports. Deliberate (July 2026) — don't resubscribe to dolly events.
@@ -81,6 +82,12 @@ the local Factorio mods folder.
 - `order_upgrade{target={name=..., quality=...}, force=...}` supports same-name
   quality-only upgrades; `get_upgrade_target()` returns (prototype, quality).
 - `on_object_destroyed.useful_id` is the entity's `unit_number`.
+- `"not-upgradable"` is an `EntityPrototypeFlag` ("can't be selected by the upgrade
+  planner"), testable via `LuaEntityPrototype.has_flag`; it is the only documented
+  planner gate. `order_upgrade` returns a boolean — rejection is signalled by
+  returning `false`, not by erroring.
+- `items_to_place_this` is an optional array of `{name, count}` (`ItemToPlace`);
+  entity name ≠ item name, always read `.name`.
 - `remote.call` is forbidden in `on_load`.
 - Still unverified in-game: that construction bots pull upgrade items from storage and
   provider chests as expected. If orders stall despite stock, check this first.

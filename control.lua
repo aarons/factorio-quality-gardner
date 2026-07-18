@@ -10,60 +10,29 @@ local qualities = require("scripts.qualities")
 local index = require("scripts.index")
 local gardener = require("scripts.gardener")
 
--- Entity types tracked as upgrade candidates
-local tracked_entity_types = {
-  -- Production
-  "assembling-machine",
-  "furnace",
-  "rocket-silo",
-  "agricultural-tower",
-  "mining-drill",
-
-  -- Electrical infrastructure
-  "electric-pole",
-  "solar-panel",
-  "accumulator",
-  "generator",
-  "reactor",
-  "fusion-reactor",
-  "fusion-generator",
-  "boiler",
-  "heat-pipe",
-  "power-switch",
-  "lightning-attractor",
-
-  -- Defense
-  "turret",
-  "ammo-turret",
-  "electric-turret",
-  "fluid-turret",
-  "artillery-turret",
-  "wall",
-  "gate",
-
-  -- Other
-  "lamp",
-  "arithmetic-combinator",
-  "decider-combinator",
-  "constant-combinator",
-  "programmable-speaker",
-  "lab",
-  "roboport",
-  "beacon",
-  "pump",
-  "offshore-pump",
-  "radar",
-  "inserter",
-}
-
+-- Candidacy is derived from prototypes, not a hand-maintained type list: any
+-- entity placed from an item that the engine allows upgrading. The per-name
+-- placing-item map is the eligibility gate everywhere; the type list only
+-- narrows world rescans.
 local function build_and_store_config()
+  local placing_item_name = {}
   local is_tracked_type = {}
-  for _, entity_type in ipairs(tracked_entity_types) do
-    is_tracked_type[entity_type] = true
+  local all_tracked_types = {}
+  for name, prototype in pairs(prototypes.entity) do
+    if not prototype.has_flag("not-upgradable") then
+      local items = prototype.items_to_place_this
+      if items and #items > 0 then
+        placing_item_name[name] = items[1].name
+        if not is_tracked_type[prototype.type] then
+          is_tracked_type[prototype.type] = true
+          all_tracked_types[#all_tracked_types + 1] = prototype.type
+        end
+      end
+    end
   end
   storage.config = {
-    is_tracked_type = is_tracked_type,
-    all_tracked_types = tracked_entity_types,
+    placing_item_name = placing_item_name,
+    all_tracked_types = all_tracked_types,
   }
 end
 
@@ -93,7 +62,7 @@ end
 
 local function on_entity_removed(event)
   local entity = event.entity
-  if entity and entity.valid and storage.config.is_tracked_type[entity.type] then
+  if entity and entity.valid and index.placing_item_name(entity) then
     index.remove(entity)
   end
 end

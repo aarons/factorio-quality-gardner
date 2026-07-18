@@ -26,30 +26,25 @@ function index.init_storage()
   storage.refresh = {list = nil, position = 1}
 end
 
--- The item that places an entity, or nil if it has none (such entities can
--- never be upgraded from network supply, so they are never candidates)
+-- The item that places an entity, or nil if it can never be upgraded from
+-- network supply (no placing item, or the engine forbids upgrading it).
+-- Precomputed per prototype name in build_and_store_config.
 function index.placing_item_name(entity)
-  local items = entity.prototype.items_to_place_this
-  if items and #items > 0 then
-    return items[1].name
-  end
-  return nil
+  return storage.config.placing_item_name[entity.name]
 end
 
 -- Add an entity as an upgrade candidate. Caller guarantees entity.valid.
--- Silently ignores anything that can't ever be upgraded (wrong type/force,
--- no placing item, terminal or sticky-hidden quality).
+-- Silently ignores anything that can't ever be upgraded (not placeable or
+-- upgradable, wrong force, terminal or sticky-hidden quality).
 function index.add(entity)
-  if not storage.config.is_tracked_type[entity.type] then return end
+  local item_name = index.placing_item_name(entity)
+  if not item_name then return end
   if entity.force.name ~= "player" then return end
   local unit_number = entity.unit_number
   if not unit_number then return end
 
   local tier = qualities.tier_of(entity.quality.name)
   if not tier or not qualities.is_candidate_tier(tier) then return end
-
-  local item_name = index.placing_item_name(entity)
-  if not item_name then return end
 
   local surface_index = entity.surface.index
   local position = entity.position
