@@ -40,13 +40,17 @@ per-type toggles.
   modules, and fuel).
 - **Reserve.** Optionally keep N of each item-quality combination untouched in storage
   as a float for new construction.
+- **Smooth, constant cost.** Work is spread evenly across ticks in a continuous
+  round-robin over your networks — a small configurable slice per tick, never a burst
+  scan or a lag spike.
+- **Orders match your bots.** Each network is only given as many orders as it has
+  construction robots available, so marks never pile up faster than bots can work.
 
 ## Settings
 
 | Setting | Default | Notes |
 |---|---|---|
-| Scan interval | 5 s | How often networks are checked |
-| Max orders per scan | 30 | Spreads large jobs over several scans |
+| Entities per tick | 20 | Work budget per tick; lower for weaker machines, raise for faster processing |
 | Reserve per item | 0 | Spares kept untouched per item-quality |
 | Order timeout | 3 min | 0 = never cancel (vanilla pending-order behavior) |
 | Hidden-quality handling | — | Skip and/or sticky startup options for mods like Quality++ Shiny |

@@ -2,21 +2,12 @@
 data:extend({
     {
         type = "int-setting",
-        name = "scan-interval-seconds",
+        name = "entities-per-tick",
         setting_type = "runtime-global",
-        default_value = 5,
-        minimum_value = 1,
-        maximum_value = 300,
-        order = "a-0"
-    },
-    {
-        type = "int-setting",
-        name = "max-orders-per-scan",
-        setting_type = "runtime-global",
-        default_value = 30,
+        default_value = 20,
         minimum_value = 1,
         maximum_value = 1000,
-        order = "a-1"
+        order = "a-0"
     },
     {
         type = "int-setting",
@@ -25,7 +16,7 @@ data:extend({
         default_value = 0,
         minimum_value = 0,
         maximum_value = 1000000,
-        order = "a-2"
+        order = "a-1"
     },
     {
         type = "double-setting",
@@ -34,7 +25,7 @@ data:extend({
         default_value = 3,
         minimum_value = 0,
         maximum_value = 600,
-        order = "a-3"
+        order = "a-2"
     },
     -- Hidden quality handling (for mods like Quality++ Shiny)
     {

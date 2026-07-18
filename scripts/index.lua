@@ -3,8 +3,8 @@ index.lua
 
 The candidate index: who exists, at what quality, where. Maintained purely by
 build/destroy events (plus a rotating position-refresh slice) — never polled.
-Entering the index queues nothing; scan cycles read it as the demand side of
-matching.
+Entering the index queues nothing; the budgeted pass reads it as the demand
+side of matching.
 
 storage.candidates[surface_index][item_name][tier] = {
   [unit_number] = { entity = LuaEntity, x = double, y = double }

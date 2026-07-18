@@ -2,8 +2,9 @@
 control.lua
 
 Entry point for Quality Gardener. Events maintain the candidate index (who
-exists, at what quality, where); the nth-tick scan cycle does all matching.
-Events never trigger upgrade attempts, and cycles never scan the world.
+exists, at what quality, where); a continuous per-tick budgeted pass does all
+matching. Events never trigger upgrade attempts, and the pass never scans the
+world.
 ]]
 
 local qualities = require("scripts.qualities")
@@ -67,13 +68,10 @@ local function on_entity_removed(event)
   end
 end
 
-local function register_main_loop()
-  -- Registrations are keyed by interval: clear any old one first
-  script.on_nth_tick(nil)
-  script.on_nth_tick(storage.scan_interval_ticks, gardener.run_cycle)
-end
-
 local function register_event_handlers()
+  -- The main loop: a small, constant slice of work every tick
+  script.on_event(defines.events.on_tick, gardener.on_tick)
+
   -- Entity creation (candidate index maintenance)
   script.on_event(defines.events.on_built_entity, on_entity_created, {{filter = "force", force = "player"}})
   script.on_event(defines.events.on_robot_built_entity, gardener.on_robot_built_entity, {{filter = "force", force = "player"}})
@@ -92,13 +90,6 @@ local function register_event_handlers()
   -- Order lifecycle
   script.on_event(defines.events.on_cancelled_upgrade, gardener.on_cancelled_upgrade)
   script.on_event(defines.events.on_object_destroyed, gardener.on_object_destroyed)
-
-  script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
-    if event.setting == "scan-interval-seconds" then
-      storage.scan_interval_ticks = settings.global["scan-interval-seconds"].value * 60
-      register_main_loop()
-    end
-  end)
 end
 
 -- Initialization ----------------------------------------------------------
@@ -116,9 +107,7 @@ local function initialize(command)
   gardener.init_storage()
   qualities.initialize()
   rescan_world()
-  storage.scan_interval_ticks = settings.global["scan-interval-seconds"].value * 60
   register_event_handlers()
-  register_main_loop()
 
   if command and command.player_index then
     local player = game.get_player(command.player_index)
@@ -139,5 +128,4 @@ end)
 script.on_load(function()
   qualities.initialize()
   register_event_handlers()
-  register_main_loop()
 end)

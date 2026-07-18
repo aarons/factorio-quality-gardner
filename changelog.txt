@@ -7,4 +7,7 @@ Date: 17. 07. 2026
     - Worst-quality buildings are upgraded first, straight to the best quality on hand.
     - Orders that starve (supply taken by players, blueprints, or other demand) are automatically
       cancelled after a configurable timeout, keeping alerts clean.
-    - Supply reserve and scan cadence settings.
+    - Processing is spread evenly across ticks (configurable work per tick) instead of burst
+      scans, and each network only receives as many orders as it has construction robots
+      available.
+    - Supply reserve and order timeout settings.
