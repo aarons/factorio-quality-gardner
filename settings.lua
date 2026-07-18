@@ -19,21 +19,13 @@ data:extend({
         order = "a-1"
     },
     {
-        type = "string-setting",
-        name = "source-chests",
-        setting_type = "runtime-global",
-        default_value = "storage",
-        allowed_values = {"storage", "storage-and-providers"},
-        order = "a-2"
-    },
-    {
         type = "int-setting",
         name = "reserve-per-item",
         setting_type = "runtime-global",
         default_value = 0,
         minimum_value = 0,
         maximum_value = 1000000,
-        order = "a-3"
+        order = "a-2"
     },
     {
         type = "double-setting",
@@ -42,14 +34,7 @@ data:extend({
         default_value = 3,
         minimum_value = 0,
         maximum_value = 600,
-        order = "a-4"
-    },
-    {
-        type = "bool-setting",
-        name = "notifications",
-        setting_type = "runtime-per-user",
-        default_value = true,
-        order = "b-0"
+        order = "a-3"
     },
     -- Hidden quality handling (for mods like Quality++ Shiny)
     {

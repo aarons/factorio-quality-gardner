@@ -2,7 +2,7 @@
 gardener.lua
 
 The scan cycle and order ledger. Each cycle is a stateless function of
-(current storage contents, current candidate index): per network, one
+(current network contents, current candidate index): per network, one
 get_contents call gates everything (most networks stock no upgrade-grade
 building items and exit immediately), coverage is tested in pure Lua against
 per-cycle roboport AABBs, and marks go worst-quality-first up to what the
@@ -33,7 +33,6 @@ function gardener.init_storage()
   storage.ledger_by_position = {}
   storage.cooldown = {}
   storage.network_rotation = 0
-  storage.pending_notify = 0
 end
 
 -- Ledger bookkeeping ------------------------------------------------------
@@ -123,9 +122,9 @@ end
 
 -- Supply ------------------------------------------------------------------
 
--- One get_contents call per network; rows are kept only when the item has
--- candidates on this surface and the quality is a permitted upgrade target.
--- Returns supply[item_name][tier] = count, or nil (the common early exit).
+-- One get_contents call for the entire network; rows are kept only when the
+-- item has candidates on this surface and the quality is a permitted upgrade
+-- target. Returns supply[item_name][tier] = count, or nil (the common exit).
 local function read_supply(network, surface_index)
   local supply = nil
   local function absorb(rows)
@@ -144,10 +143,7 @@ local function read_supply(network, surface_index)
     end
   end
 
-  absorb(network.get_contents("storage"))
-  if settings.global["source-chests"].value == "storage-and-providers" then
-    absorb(network.get_contents("providers"))
-  end
+  absorb(network.get_contents())
 
   if supply then
     local reserve = settings.global["reserve-per-item"].value
@@ -335,19 +331,6 @@ local function process_network(network, surface_index, state)
   end
 end
 
--- Notifications -----------------------------------------------------------
-
-local function flush_notifications()
-  local count = storage.pending_notify
-  if count == 0 then return end
-  storage.pending_notify = 0
-  for _, player in pairs(game.connected_players) do
-    if settings.get_player_settings(player)["notifications"].value then
-      player.print({"quality-gardener.upgraded-summary", count})
-    end
-  end
-end
-
 -- Scan cycle --------------------------------------------------------------
 
 function gardener.run_cycle()
@@ -384,7 +367,6 @@ function gardener.run_cycle()
   end
 
   index.refresh_slice(REFRESH_ENTITIES_PER_CYCLE)
-  flush_notifications()
 end
 
 -- Lifecycle event handlers ------------------------------------------------
@@ -445,7 +427,6 @@ function gardener.on_robot_built_entity(event)
     -- its ledger entry and index record now (the later event then no-ops)
     index.remove_key(entry.surface_index, entry.item_name, entry.tier, unit_number)
     remove_order(unit_number)
-    storage.pending_notify = storage.pending_notify + 1
   end
 end
 

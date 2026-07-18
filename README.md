@@ -1,15 +1,15 @@
 # Quality Gardener
 
 A Factorio 2.1 mod. When higher-quality versions of your buildings sit in a logistic
-network's storage chests, the lower-quality placed buildings in that network are marked
-for upgrade so construction bots swap them out — like a gardener steadily replacing the
-worst plants with the best cuttings on hand.
+network, the lower-quality placed buildings in that network are marked for upgrade so
+construction bots swap them out — like a gardener steadily replacing the worst plants
+with the best cuttings on hand.
 
 ## How to use it
 
-Drop spare higher-quality building items into storage chests (from quality recycling,
-asteroid reprocessing, or dedicated quality production) and let the bots work. No
-manual upgrade-planner passes needed.
+Drop spare higher-quality building items into the logistic network (from quality
+recycling, asteroid reprocessing, or dedicated quality production) and let the bots
+work. No manual upgrade-planner passes needed.
 
 - **Worst first.** The lowest-quality buildings are upgraded before better ones, so
   each item delivers the biggest improvement.
@@ -47,10 +47,8 @@ per-type toggles.
 |---|---|---|
 | Scan interval | 5 s | How often networks are checked |
 | Max orders per scan | 30 | Spreads large jobs over several scans |
-| Supply source | storage | Optionally also passive/active providers; requesters and buffers never count |
 | Reserve per item | 0 | Spares kept untouched per item-quality |
 | Order timeout | 3 min | 0 = never cancel (vanilla pending-order behavior) |
-| Console notifications | on | Per-player aggregate message |
 | Hidden-quality handling | — | Skip and/or sticky startup options for mods like Quality++ Shiny |
 
 ## Compatibility

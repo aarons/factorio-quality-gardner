@@ -1,8 +1,8 @@
 # Quality Gardener
 
 Factorio 2.1 mod: when higher-quality versions of placed buildings sit in a logistic
-network's storage, lower-quality placed buildings in that network are marked for upgrade
-so construction bots swap them out.
+network, lower-quality placed buildings in that network are marked for upgrade so
+construction bots swap them out.
 
 The architecture in one line: *events maintain the candidate index, scan cycles do all
 matching statelessly, and the entity's own upgrade mark is the source of truth (the
@@ -15,8 +15,9 @@ behavior.
   (`to_be_upgraded()` / `get_upgrade_target()`); the ledger is always rebuildable by
   adopting marks from a world rescan. Missed events make cached numbers stale until
   the next scan, never wrong forever.
-- **Accounting is conservative, with no in-flight tracking.** Supply is what's
-  physically in chests (one `get_contents` call per network); outstanding ledger
+- **Accounting is conservative, with no in-flight tracking.** Supply is the
+  network's full contents (one bare `get_contents()` call per network);
+  outstanding ledger
   orders are subtracted whole. The brief double-count while a bot is in flight only
   ever undercounts, then self-corrects on delivery.
 - **Timeout instead of reconciliation.** There are no events for network content
@@ -75,10 +76,10 @@ the local Factorio mods folder.
 
 ## Verified API facts (don't re-derive)
 
-- `LuaLogisticNetwork.get_contents(member?)` — `member` accepts only `"storage"` or
-  `"providers"`; returns an array of `{name, quality, count}` where `quality` is a
-  **string** prototype name. There is no buffer-chest member; requester/buffer
-  contents are never counted.
+- `LuaLogisticNetwork.get_contents(member?)` — `member` is optional (`"storage"` or
+  `"providers"`); when omitted, returns item counts for the **entire network**. We
+  always call it bare. Returns an array of `{name, quality, count}` where `quality`
+  is a **string** prototype name.
 - `order_upgrade{target={name=..., quality=...}, force=...}` supports same-name
   quality-only upgrades; `get_upgrade_target()` returns (prototype, quality).
 - `on_object_destroyed.useful_id` is the entity's `unit_number`.
@@ -89,8 +90,10 @@ the local Factorio mods folder.
 - `items_to_place_this` is an optional array of `{name, count}` (`ItemToPlace`);
   entity name ≠ item name, always read `.name`.
 - `remote.call` is forbidden in `on_load`.
-- Still unverified in-game: that construction bots pull upgrade items from storage and
-  provider chests as expected. If orders stall despite stock, check this first.
+- Requester-chest contents do not count toward logistic network contents; a bare
+  `get_contents()` only reports what bots can actually draw from.
+- Still unverified in-game: that construction bots pull upgrade items from network
+  supply as expected. If orders stall despite stock, check this first.
 
 ## Localization
 
