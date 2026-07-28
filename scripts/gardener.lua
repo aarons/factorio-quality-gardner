@@ -2,28 +2,14 @@
 gardener.lua
 
 The matching engine: a continuous, budgeted pass over the player's logistic
-networks. Each tick spends a configurable number of entity touches
-(candidates examined, contents rows read, orders issued or cancelled,
-positions refreshed), so the cost per tick is small and constant — no burst
-scans, no idle gaps. Networks are visited round-robin; entering one reads
-everything needed from the live reference in that single tick (supply,
-coverage boxes, available construction robots), and all matching then runs
-from the plain-data snapshot. Network references never span ticks; the pass
-state lives in storage so saves and multiplayer joins resume it identically.
-
-Orders per network are capped by available_construction_robots, read once at
-entry with no in-flight accounting: never mark more work than bots can
-start. Staleness in the count only delays marks until the next visit.
+networks. Networks are visited round-robin; entering one reads everything
+needed from the live reference in that single tick, and all matching then
+runs from the plain-data snapshot.
 
 The ledger (storage.ledger) is the only per-entity state: a transient entry
 per order we've issued, used to count outstanding demand and to expire starved
 orders. The world is the source of truth — entity upgrade marks always win;
 at worst the ledger is rebuilt by adopting marks from a world rescan.
-
-Accounting is deliberately conservative: supply counts items physically in
-the network, outstanding orders are subtracted whole, and the brief
-double-count while a bot is in flight only ever undercounts. No in-flight
-tracking exists.
 ]]
 
 local qualities = require("scripts.qualities")
@@ -41,9 +27,7 @@ function gardener.init_storage()
   storage.ledger = {}
   storage.ledger_by_position = {}
   storage.cooldown = {}
-  -- Resumable pass state: an integer round-robin cursor plus plain-data
-  -- snapshots of the network being worked — never network references (they
-  -- invalidate on merge/split, and locals would desync a multiplayer join)
+  -- Resumable pass state: round-robin cursor, network snapshot, expiry queue
   storage.pass = {cursor = 1}
 end
 
@@ -105,8 +89,6 @@ end
 
 -- Expiry runs once per full round of the networks: our orders older than
 -- the timeout are queued, then cancelled under the same per-tick budget.
--- Starved orders stay cancelled (their networks show no supply); healthy-
--- but-slow orders are re-marked when their network is next visited.
 local function queue_expired_orders(pass)
   local timeout_minutes = settings.global["order-timeout-minutes"].value
   if timeout_minutes == 0 then return end
@@ -187,7 +169,7 @@ end
 -- Coverage ----------------------------------------------------------------
 
 -- Construction areas are squares: one AABB per stationary cell, built once
--- at network entry (API cost scales with roboport count, never entities)
+-- at network entry
 local function build_coverage(network)
   local boxes = {}
   for _, cell in pairs(network.cells) do
@@ -221,8 +203,7 @@ end
 -- Matching ----------------------------------------------------------------
 
 -- Our pending orders in this network's coverage consume supply at their
--- target quality; subtract them. Grouping is recomputed at every network
--- entry — network identity is transient, so nothing network-shaped is stored.
+-- target quality; subtract them.
 local function subtract_outstanding(supply, surface_index, boxes)
   for _, entry in pairs(storage.ledger) do
     if entry.surface_index == surface_index then
@@ -420,9 +401,7 @@ end
 
 -- Network entry -----------------------------------------------------------
 
--- Enter a network: read everything needed from the live reference in this
--- single tick — supply, coverage boxes, bot headroom — so only plain-data
--- snapshots ever span ticks. Costs one touch plus one per contents row.
+-- Enter a network: costs one touch plus one per contents row.
 local function enter_network(network, surface_index, pass, budget)
   budget = budget - 1
   if not network.valid then return budget end
@@ -525,8 +504,6 @@ end
 
 -- Player (or another mod) cancelled one of our marks: drop the order and
 -- back off briefly so we don't instantly re-mark against their intent.
--- Our own cancel_upgrade calls also raise this event, but the entry is
--- already removed by then, so this is a no-op for them.
 function gardener.on_cancelled_upgrade(event)
   local entity = event.entity
   if not (entity and entity.valid) then return end
@@ -538,8 +515,7 @@ function gardener.on_cancelled_upgrade(event)
 end
 
 -- Universal catch-all for marked entities: upgrade completed, died, mined,
--- or destroyed by script — in every case the order and the old index record
--- are dropped. Registration persists through save/load.
+-- or destroyed by script. Registration persists through save/load.
 function gardener.on_object_destroyed(event)
   if event.type ~= defines.target_type.entity then return end
   local unit_number = event.useful_id
@@ -584,8 +560,7 @@ end
 
 -- Recovery path (on_configuration_changed / quality-gardener-init): adopt an
 -- existing upgrade mark into the ledger when it looks like ours — same name,
--- higher quality target. Indistinguishable player marks get adopted too; ones
--- with supply behind them just complete or re-mark, starved ones get expired.
+-- higher quality target.
 function gardener.adopt(entity)
   if not entity.to_be_upgraded() then return end
   local target_prototype, target_quality = entity.get_upgrade_target()

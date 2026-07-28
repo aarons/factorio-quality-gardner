@@ -1,20 +1,16 @@
 --[[
 control.lua
 
-Entry point for Quality Gardener. Events maintain the candidate index (who
-exists, at what quality, where); a continuous per-tick budgeted pass does all
-matching. Events never trigger upgrade attempts, and the pass never scans the
-world.
+Entry point for Quality Gardener. Events never trigger upgrade attempts, and
+the pass never scans the world.
 ]]
 
 local qualities = require("scripts.qualities")
 local index = require("scripts.index")
 local gardener = require("scripts.gardener")
 
--- Candidacy is derived from prototypes, not a hand-maintained type list: any
--- entity placed from an item that the engine allows upgrading. The per-name
--- placing-item map is the eligibility gate everywhere; the type list only
--- narrows world rescans.
+-- The per-name placing-item map is the eligibility gate everywhere; the type
+-- list only narrows world rescans.
 local function build_and_store_config()
   local placing_item_name = {}
   local is_tracked_type = {}

@@ -3,17 +3,10 @@ index.lua
 
 The candidate index: who exists, at what quality, where. Maintained purely by
 build/destroy events (plus a rotating position-refresh slice) — never polled.
-Entering the index queues nothing; the budgeted pass reads it as the demand
-side of matching.
 
 storage.candidates[surface_index][item_name][tier] = {
   [unit_number] = { entity = LuaEntity, x = double, y = double }
 }
-
-Cached positions are a filter hint, not truth: movers like Even Pickier Dollies
-teleport entities without base-game events. The authoritative position re-read
-happens at mark time (gardener.lua); the refresh slice bounds how long a stale
-position can wrongly filter an entity out.
 ]]
 
 local qualities = require("scripts.qualities")
@@ -34,8 +27,6 @@ function index.placing_item_name(entity)
 end
 
 -- Add an entity as an upgrade candidate. Caller guarantees entity.valid.
--- Silently ignores anything that can't ever be upgraded (not placeable or
--- upgradable, wrong force, terminal or sticky-hidden quality).
 function index.add(entity)
   local item_name = index.placing_item_name(entity)
   if not item_name then return end
@@ -67,8 +58,7 @@ function index.add(entity)
   bucket[unit_number] = {entity = entity, x = position.x, y = position.y}
 end
 
--- Remove by explicit keys (used when the entity is already gone). Prunes empty
--- tables so scans never walk dead buckets.
+-- Remove by explicit keys (used when the entity is already gone)
 function index.remove_key(surface_index, item_name, tier, unit_number)
   local by_item = storage.candidates[surface_index]
   local by_tier = by_item and by_item[item_name]
@@ -118,8 +108,8 @@ local function build_bucket_list()
 end
 
 -- Refresh cached positions for roughly max_entities candidates per call,
--- rotating through all buckets over successive calls. Also evicts records
--- whose entities have become invalid without our events firing.
+-- rotating through all buckets over successive calls. Also evicts records our
+-- destroy events missed.
 function index.refresh_slice(max_entities)
   local refresh = storage.refresh
   if not refresh.list or refresh.position > #refresh.list then

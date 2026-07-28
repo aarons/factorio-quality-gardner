@@ -2,8 +2,7 @@
 
 A Factorio 2.1 mod. When higher-quality versions of your buildings sit in a logistic
 network, the lower-quality placed buildings in that network are marked for upgrade so
-construction bots swap them out — like a gardener steadily replacing the worst plants
-with the best cuttings on hand.
+construction bots swap them out.
 
 ## How to use it
 
@@ -16,11 +15,9 @@ work. No manual upgrade-planner passes needed.
 - **Direct to best.** A normal building jumps straight to the best quality on
   hand — one bot trip, no intermediate items.
 - **The cascade is free.** Upgrading a building returns its lower-quality item to
-  storage, which can then lift an even worse building. Quality ripples down through
-  the base with no extra logic.
-- **Every building keeps climbing.** A just-upgraded building immediately becomes a
-  candidate for the next tier; over months of play a machine can walk
-  normal → rare → legendary as stock evolves around it.
+  storage, which can then lift an even worse building, and the upgraded building is
+  itself a candidate for the next tier. Quality ripples through the base with no
+  extra logic — over months of play a machine can walk normal → rare → legendary.
 
 Everything placeable and upgradable is covered — assemblers down to belts, pipes, and
 poles. Coverage is derived from prototypes (anything placed from an item that the game
@@ -40,11 +37,8 @@ per-type toggles.
   modules, and fuel).
 - **Reserve.** Optionally keep N of each item-quality combination untouched in storage
   as a float for new construction.
-- **Smooth, constant cost.** Work is spread evenly across ticks in a continuous
-  round-robin over your networks — a small configurable slice per tick, never a burst
-  scan or a lag spike.
-- **Orders match your bots.** Each network is only given as many orders as it has
-  construction robots available, so marks never pile up faster than bots can work.
+- **Smooth, constant cost.** Work is spread evenly across ticks, never a burst scan
+  or a lag spike.
 
 ## Settings
 
@@ -57,12 +51,8 @@ per-type toggles.
 
 ## Compatibility
 
-- Works with any quality mod — quality chains are walked via the prototype graph, never
-  hardcoded, including hidden qualities (skip/sticky startup settings).
-- Entities managed by other mods are fine: bots perform the upgrades natively, so no
-  exclusion lists or integrations are needed.
-- Teleport mods (Even Pickier Dollies, etc.) are tolerated without integration: cached
-  entity positions are treated as hints and re-verified before any order is issued.
+Works with any quality mod — quality chains are walked via the prototype graph, never
+hardcoded, including hidden qualities (skip/sticky startup settings).
 
 If the mod's state ever looks wrong, `/quality-gardener-init` rebuilds everything from
 the world (the entity's own upgrade marks are the source of truth).

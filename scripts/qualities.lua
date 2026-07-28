@@ -3,9 +3,7 @@ qualities.lua
 
 The quality chain, walked once from "normal" via quality.next and cached as an
 ordered array. Everything else in the mod refers to qualities by "tier" — the
-1-based position in this chain — so ordering comparisons are plain integer
-comparisons and hidden-quality policy (skip/sticky, for mods like Quality++
-Shiny) is applied in one place. Qualities not reachable from "normal" are
+1-based position in this chain. Qualities not reachable from "normal" are
 ignored entirely.
 
 Rebuilt from prototypes + startup settings on init/load; nothing here persists.
