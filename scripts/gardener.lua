@@ -1,177 +1,82 @@
 --[[
 gardener.lua
 
-The matching engine: a continuous, budgeted pass over the player's logistic
+The matching engine: a stateless, scan-based pass over the player's logistic
 networks. Networks are visited round-robin; entering one reads everything
-needed from the live reference in that single tick, and all matching then
-runs from the plain-data snapshot.
+needed from the live reference in that single tick (bot headroom, contents,
+construction cell boxes), then the covered entities are scanned one cell at a
+time and matched against the plain-data snapshot.
 
-The ledger (storage.ledger) is the only per-entity state: a transient entry
-per order we've issued, used to count outstanding demand and to expire starved
-orders. The world is the source of truth — entity upgrade marks always win;
-at worst the ledger is rebuilt by adopting marks from a world rescan.
+Nothing per-entity is stored. Marked entities are recognized by asking the
+entity itself (to_be_upgraded()); every visible mark — ours from a past round,
+a player's upgrade-planner mark, or another mod's — consumes supply as demand.
+No mark is ever cancelled: without a ledger we cannot tell ours from a
+player's, and cancelling a player's mark is off-limits.
 ]]
 
 local qualities = require("scripts.qualities")
-local index = require("scripts.index")
 
 local gardener = {}
 
--- After a player cancels one of our marks, leave the entity alone this long
-local REMARK_COOLDOWN_TICKS = 2 * 60 * 60
--- Fraction of the per-tick budget reserved for the position-refresh slice,
--- so sustained marking can't starve it (leftover budget also refreshes)
-local REFRESH_SHARE = 10
+-- How often the pass runs; each invocation spends up to entities-per-pass
+-- iterations.
+gardener.PASS_INTERVAL_TICKS = 10
 
 function gardener.init_storage()
-  storage.ledger = {}
-  storage.ledger_by_position = {}
-  storage.cooldown = {}
-  -- Resumable pass state: round-robin cursor, network snapshot, expiry queue
+  -- The resumable cursor is the only cross-tick state; abandoning it is
+  -- always safe (the next pass re-derives everything from the world).
   storage.pass = {cursor = 1}
+  -- Storage keys from the event-tracking architecture; nil them out so old
+  -- saves migrate cleanly.
+  storage.candidates = nil
+  storage.ledger = nil
+  storage.ledger_by_position = nil
+  storage.cooldown = nil
+  storage.refresh = nil
 end
 
--- Ledger bookkeeping ------------------------------------------------------
+-- Network entry -------------------------------------------------------------
 
-local function position_key(surface_index, x, y)
-  return string.format("%d:%.2f:%.2f", surface_index, x, y)
-end
-
-local function add_order(entity, item_name, tier, target_tier, restore, surface_index, position)
-  local unit_number = entity.unit_number
-  storage.ledger[unit_number] = {
-    entity = entity,
-    tick_ordered = game.tick,
-    item_name = item_name,
-    tier = tier,
-    target_tier = target_tier,
-    surface_index = surface_index,
-    x = position.x,
-    y = position.y,
-    restore = restore,
-  }
-  storage.ledger_by_position[position_key(surface_index, position.x, position.y)] = unit_number
-end
-
-local function remove_order(unit_number)
-  local entry = storage.ledger[unit_number]
-  if not entry then return end
-  storage.ledger[unit_number] = nil
-  local key = position_key(entry.surface_index, entry.x, entry.y)
-  if storage.ledger_by_position[key] == unit_number then
-    storage.ledger_by_position[key] = nil
-  end
-end
-
-local function on_cooldown(unit_number)
-  local until_tick = storage.cooldown[unit_number]
-  if until_tick then
-    if until_tick > game.tick then return true end
-    storage.cooldown[unit_number] = nil
-  end
-  return false
-end
-
--- Runtime state that doesn't survive a bot swap; restored on completion
-local function capture_restore(entity)
-  local entity_type = entity.type
-  if entity_type == "accumulator" then
-    return {energy = entity.energy}
-  elseif entity_type == "lamp" then
-    return {always_on = entity.always_on}
-  elseif entity_type == "rocket-silo" then
-    return {send_to_orbit = entity.send_to_orbit_automatically}
-  end
-  return nil
-end
-
--- Order expiry ------------------------------------------------------------
-
--- Expiry runs once per full round of the networks: our orders older than
--- the timeout are queued, then cancelled under the same per-tick budget.
-local function queue_expired_orders(pass)
-  local timeout_minutes = settings.global["order-timeout-minutes"].value
-  if timeout_minutes == 0 then return end
-
-  local cutoff = game.tick - math.floor(timeout_minutes * 3600)
-  local expired = nil
-  for unit_number, entry in pairs(storage.ledger) do
-    if entry.tick_ordered <= cutoff then
-      expired = expired or {}
-      expired[#expired + 1] = unit_number
-    end
-  end
-  if expired then
-    pass.expiry = expired
-    pass.expiry_index = 1
-  end
-end
-
-local function run_expiry(pass, budget)
-  local queue = pass.expiry
-  while budget > 0 and pass.expiry_index <= #queue do
-    local unit_number = queue[pass.expiry_index]
-    pass.expiry_index = pass.expiry_index + 1
-    budget = budget - 1
-    local entry = storage.ledger[unit_number]
-    if entry then
-      local entity = entry.entity
-      -- Remove before cancelling so our own on_cancelled_upgrade is a no-op
-      remove_order(unit_number)
-      if entity.valid and entity.to_be_upgraded() then
-        entity.cancel_upgrade(entity.force)
-      end
-    end
-  end
-  if pass.expiry_index > #queue then
-    pass.expiry = nil
-    pass.expiry_index = nil
-  end
-  return budget
-end
-
--- Supply ------------------------------------------------------------------
-
--- One get_contents call for the entire network; rows are kept only when the
--- item has candidates on this surface and the quality is a permitted upgrade
--- target. Returns supply[item_name][tier] = count (or nil, the common exit)
--- and the number of rows examined.
-local function read_supply(network, surface_index)
-  local rows = network.get_contents()
+-- One bare get_contents call for the entire network, folded into
+-- supply[item_name][tier] = count. Rows are kept only when the item places an
+-- entity and the quality is a permitted upgrade target; the per-item reserve
+-- is subtracted as each (item, tier) entry is created.
+local function read_supply(network)
+  local reserve = settings.global["reserve-per-item"].value
+  local item_places_entity = storage.config.item_places_entity
   local supply = nil
-  for _, row in ipairs(rows) do
-    local tier = qualities.tier_of(row.quality)
-    if tier and qualities.is_target_tier(tier)
-      and index.has_candidates_for_item(surface_index, row.name) then
-      supply = supply or {}
-      local by_tier = supply[row.name]
-      if not by_tier then
-        by_tier = {}
-        supply[row.name] = by_tier
-      end
-      by_tier[tier] = (by_tier[tier] or 0) + row.count
-    end
-  end
-
-  if supply then
-    local reserve = settings.global["reserve-per-item"].value
-    if reserve > 0 then
-      for _, by_tier in pairs(supply) do
-        for tier, count in pairs(by_tier) do
-          by_tier[tier] = count - reserve
+  for _, row in ipairs(network.get_contents()) do
+    if item_places_entity[row.name] then
+      local tier = qualities.tier_of(row.quality)
+      if tier and qualities.is_target_tier(tier) then
+        supply = supply or {}
+        local by_tier = supply[row.name]
+        if not by_tier then
+          by_tier = {}
+          supply[row.name] = by_tier
         end
+        by_tier[tier] = (by_tier[tier] or -reserve) + row.count
       end
     end
   end
-  return supply, #rows
+  return supply
 end
 
--- Coverage ----------------------------------------------------------------
+-- Enter one network: read everything needed from the live reference in this
+-- single tick — the reference is never carried forward. Returns the
+-- plain-data work state, or nil to skip the network.
+local function enter_network(network, surface_index)
+  if not network.valid then return nil end
 
--- Construction areas are squares: one AABB per stationary cell, built once
--- at network entry
-local function build_coverage(network)
-  local boxes = {}
+  local bots = network.available_construction_robots
+  if bots == 0 then return nil end
+
+  local supply = read_supply(network)
+  if not supply then return nil end
+
+  -- Construction areas are squares: one box per stationary cell, scanned one
+  -- cell at a time to bound each find_entities_filtered burst.
+  local cells = {}
   for _, cell in pairs(network.cells) do
     if not cell.mobile then
       local radius = cell.construction_radius
@@ -179,281 +84,92 @@ local function build_coverage(network)
         local owner = cell.owner
         if owner and owner.valid then
           local position = owner.position
-          boxes[#boxes + 1] = {
-            x1 = position.x - radius, y1 = position.y - radius,
-            x2 = position.x + radius, y2 = position.y + radius,
+          cells[#cells + 1] = {
+            {position.x - radius, position.y - radius},
+            {position.x + radius, position.y + radius},
           }
         end
       end
     end
   end
-  return boxes
-end
-
-local function in_coverage(boxes, x, y)
-  for i = 1, #boxes do
-    local box = boxes[i]
-    if x >= box.x1 and x <= box.x2 and y >= box.y1 and y <= box.y2 then
-      return true
-    end
-  end
-  return false
-end
-
--- Matching ----------------------------------------------------------------
-
--- Our pending orders in this network's coverage consume supply at their
--- target quality; subtract them.
-local function subtract_outstanding(supply, surface_index, boxes)
-  for _, entry in pairs(storage.ledger) do
-    if entry.surface_index == surface_index then
-      local by_tier = supply[entry.item_name]
-      if by_tier and in_coverage(boxes, entry.x, entry.y) then
-        by_tier[entry.target_tier] = (by_tier[entry.target_tier] or 0) - 1
-      end
-    end
-  end
-end
-
--- Upgrade upgrades: when better supply appears above a pending order's
--- target, re-issue the order at the higher target (ours only).
-local function try_raise(net, unit_number)
-  local entry = storage.ledger[unit_number]
-  if not entry or entry.surface_index ~= net.surface_index then return end
-  local by_tier = net.supply[entry.item_name]
-  if not by_tier then return end
-
-  local best = nil
-  for tier, count in pairs(by_tier) do
-    if count > 0 and tier > entry.target_tier and (not best or tier > best) then
-      best = tier
-    end
-  end
-  if not best then return end
-
-  local entity = entry.entity
-  if entity.valid and entity.to_be_upgraded() then
-    local ok = entity.order_upgrade{
-      target = {name = entity.name, quality = qualities.at(best).name},
-      force = entity.force,
-    }
-    if ok then
-      by_tier[best] = by_tier[best] - 1
-      by_tier[entry.target_tier] = (by_tier[entry.target_tier] or 0) + 1
-      entry.target_tier = best
-      entry.tick_ordered = game.tick
-      net.bots = net.bots - 1
-    end
-  end
-end
-
--- The supply tier a candidate at this tier would be upgraded to, or nil
-local function pick_target(item, by_tier)
-  for _, tier in ipairs(item.supply_tiers) do
-    if tier <= item.candidate_tier then return nil end
-    if by_tier[tier] > 0 then return tier end
-  end
-  return nil
-end
-
--- The marking cursor for one item: candidate tiers ascending (worst first),
--- supply tiers descending (best target first). Unit lists are snapshotted
--- per tier as the cursor reaches them (marking mutates buckets via removals).
-local function build_item_state(net, item_name)
-  local by_tier = net.supply[item_name]
-  local supply_tiers = {}
-  for tier, count in pairs(by_tier) do
-    if count > 0 then supply_tiers[#supply_tiers + 1] = tier end
-  end
-  if #supply_tiers == 0 then return nil end
-  table.sort(supply_tiers, function(a, b) return a > b end)
-
-  local buckets = index.get_buckets(net.surface_index, item_name)
-  if not buckets then return nil end
-  local candidate_tiers = {}
-  for tier in pairs(buckets) do candidate_tiers[#candidate_tiers + 1] = tier end
-  table.sort(candidate_tiers)
+  if #cells == 0 then return nil end
 
   return {
-    item_name = item_name,
-    supply_tiers = supply_tiers,
-    candidate_tiers = candidate_tiers,
-    tier_index = 0,
-    candidate_tier = nil,
-    units = {},
-    unit_index = 1,
+    surface_index = surface_index,
+    supply = supply,
+    bots = bots,
+    cells = cells,
+    cell_index = 0,
+    entities = nil,
+    entity_index = 1,
   }
 end
 
--- Advance the item cursor to the next unit number, or nil (item exhausted)
-local function next_unit(net, item)
-  while true do
-    if item.unit_index <= #item.units then
-      local unit_number = item.units[item.unit_index]
-      item.unit_index = item.unit_index + 1
-      return unit_number
-    end
-    item.tier_index = item.tier_index + 1
-    local tier = item.candidate_tiers[item.tier_index]
-    if not tier then return nil end
-    item.candidate_tier = tier
-    item.units = {}
-    item.unit_index = 1
-    if pick_target(item, net.supply[item.item_name]) then
-      local buckets = index.get_buckets(net.surface_index, item.item_name)
-      local bucket = buckets and buckets[tier]
-      if bucket then
-        for unit_number in pairs(bucket) do
-          item.units[#item.units + 1] = unit_number
-        end
-      end
+-- Matching -------------------------------------------------------------------
+
+-- Highest tier above `tier` with stock remaining, or nil. Supply is
+-- decremented in place, so the snapshot itself is the availability cache.
+local function best_target_tier(by_tier, tier)
+  local best = nil
+  for supply_tier, count in pairs(by_tier) do
+    if count > 0 and supply_tier > tier and (not best or supply_tier > best) then
+      best = supply_tier
     end
   end
+  return best
 end
 
-local function try_mark(net, item, unit_number)
-  local by_tier = net.supply[item.item_name]
-  local target_tier = pick_target(item, by_tier)
-  if not target_tier then
-    -- Availability exhausted for this candidate tier; skip its remaining units
-    item.unit_index = #item.units + 1
+-- One iteration: examine one scanned entity, first-come-first-served in scan
+-- order. Duplicates from overlapping cells are harmless — once marked, later
+-- encounters take the demand-accounting path.
+local function examine(net, entity)
+  if not entity.valid then return end
+  local item_name = storage.config.placing_item_name[entity.name]
+  if not item_name then return end
+  if entity.force.name ~= "player" then return end
+  local tier = qualities.tier_of(entity.quality.name)
+  if not tier then return end
+  if entity.to_be_deconstructed() then return end
+
+  if entity.to_be_upgraded() then
+    -- Demand accounting: an existing mark consumes supply at its target.
+    local target_prototype, target_quality = entity.get_upgrade_target()
+    local target_item = target_prototype
+      and storage.config.placing_item_name[target_prototype.name]
+    local by_tier = target_item and net.supply[target_item]
+    local target_tier = target_quality and qualities.tier_of(target_quality.name)
+    if by_tier and target_tier then
+      by_tier[target_tier] = (by_tier[target_tier] or 0) - 1
+    end
     return
   end
 
-  local buckets = index.get_buckets(net.surface_index, item.item_name)
-  local bucket = buckets and buckets[item.candidate_tier]
-  local record = bucket and bucket[unit_number]
-  if not record or storage.ledger[unit_number] or on_cooldown(unit_number)
-    or not in_coverage(net.boxes, record.x, record.y) then
-    return
-  end
+  if not qualities.is_candidate_tier(tier) then return end
+  local by_tier = net.supply[item_name]
+  if not by_tier then return end
+  local target_tier = best_target_tier(by_tier, tier)
+  if not target_tier then return end
 
-  local entity = record.entity
-  if not entity.valid then
-    index.remove_key(net.surface_index, item.item_name, item.candidate_tier, unit_number)
-    return
-  end
-  if entity.to_be_upgraded() or entity.to_be_deconstructed() then return end
-
-  -- Cached position is a hint; the entity is authoritative (teleport mods)
-  local position = entity.position
-  record.x = position.x
-  record.y = position.y
-  if not in_coverage(net.boxes, position.x, position.y) then return end
-
-  local restore = capture_restore(entity)
-  script.register_on_object_destroyed(entity)
   local ok = entity.order_upgrade{
     target = {name = entity.name, quality = qualities.at(target_tier).name},
     force = entity.force,
   }
   if ok then
-    add_order(entity, item.item_name, item.candidate_tier, target_tier, restore,
-      net.surface_index, position)
     by_tier[target_tier] = by_tier[target_tier] - 1
     net.bots = net.bots - 1
   end
 end
 
--- Advance the current network snapshot by up to `budget` touches; returns
--- the remaining budget. Clears the snapshot when its work or the bot
--- headroom is exhausted.
-local function step_network(pass, budget)
-  local net = pass.network
+-- The pass ------------------------------------------------------------------
 
-  while budget > 0 and net.raise_index <= #net.raises do
-    local unit_number = net.raises[net.raise_index]
-    net.raise_index = net.raise_index + 1
-    budget = budget - 1
-    try_raise(net, unit_number)
-    if net.bots <= 0 then
-      pass.network = nil
-      return budget
-    end
-  end
-
-  while budget > 0 do
-    local item = net.item
-    if item then
-      local unit_number = next_unit(net, item)
-      if unit_number then
-        budget = budget - 1
-        try_mark(net, item, unit_number)
-        if net.bots <= 0 then
-          pass.network = nil
-          return budget
-        end
-      else
-        net.item = nil
-      end
-    else
-      net.item_index = net.item_index + 1
-      local item_name = net.items[net.item_index]
-      if not item_name then
-        pass.network = nil
-        return budget
-      end
-      net.item = build_item_state(net, item_name)
-    end
-  end
-  return budget
-end
-
--- Network entry -----------------------------------------------------------
-
--- Enter a network: costs one touch plus one per contents row.
-local function enter_network(network, surface_index, pass, budget)
-  budget = budget - 1
-  if not network.valid then return budget end
-
-  local bots = network.available_construction_robots
-  if bots == 0 then return budget end
-
-  local supply, rows = read_supply(network, surface_index)
-  budget = budget - rows
-  if not supply then return budget end
-
-  local boxes = build_coverage(network)
-  if #boxes == 0 then return budget end
-
-  subtract_outstanding(supply, surface_index, boxes)
-
-  -- Snapshot our pending orders eligible for a raise in this network
-  local raises = {}
-  for unit_number, entry in pairs(storage.ledger) do
-    if entry.surface_index == surface_index and supply[entry.item_name]
-      and in_coverage(boxes, entry.x, entry.y) then
-      raises[#raises + 1] = unit_number
-    end
-  end
-
-  local items = {}
-  for item_name in pairs(supply) do
-    items[#items + 1] = item_name
-  end
-
-  pass.network = {
-    surface_index = surface_index,
-    supply = supply,
-    boxes = boxes,
-    bots = bots,
-    raises = raises,
-    raise_index = 1,
-    items = items,
-    item_index = 0,
-    item = nil,
-  }
-  return budget
-end
-
--- Networks are re-enumerated fresh at every use (merges and splits handled
--- for free); only the integer cursor persists, so a mid-round merge or split
--- at worst skips or repeats a network for one round.
+-- Network slots are re-enumerated fresh whenever a new network is needed;
+-- only the integer cursor persists, so a mid-round merge or split at worst
+-- skips or repeats a network for one round.
 local function collect_network_slots()
   local slots = {}
   for surface_name, networks in pairs(game.forces.player.logistic_networks) do
     local surface = game.surfaces[surface_name]
-    if surface and storage.candidates[surface.index] then
+    if surface then
       for _, network in pairs(networks) do
         slots[#slots + 1] = {network = network, surface_index = surface.index}
       end
@@ -462,121 +178,73 @@ local function collect_network_slots()
   return slots
 end
 
--- The per-tick loop -------------------------------------------------------
+-- Scan one construction cell's area for entities the pass can act on.
+-- Returns nil if the surface vanished mid-visit.
+local function scan_cell(net)
+  local surface = game.get_surface(net.surface_index)
+  if not surface then return nil end
+  return surface.find_entities_filtered{
+    area = net.cells[net.cell_index],
+    force = "player",
+    type = storage.config.all_tracked_types,
+  }
+end
 
-function gardener.on_tick()
-  local budget = settings.global["entities-per-tick"].value
-  local refresh_budget = math.floor(budget / REFRESH_SHARE)
-  budget = budget - refresh_budget
-
+function gardener.on_pass()
   local pass = storage.pass
-  local slots = nil
-  local entered = 0
+  if pass.resume_tick then
+    if game.tick < pass.resume_tick then return end
+    pass.resume_tick = nil
+  end
+
+  local budget = settings.global["entities-per-pass"].value
+  local scanned_cell_this_invocation = false
 
   while budget > 0 do
-    if pass.expiry then
-      budget = run_expiry(pass, budget)
-    elseif pass.network then
-      budget = step_network(pass, budget)
-    else
-      slots = slots or collect_network_slots()
-      if #slots == 0 or entered >= #slots then break end
+    local net = pass.network
+    if not net then
+      -- One iteration: advance the cursor and enter the next network
+      budget = budget - 1
+      local slots = collect_network_slots()
       if pass.cursor > #slots then
+        -- Round complete: rest, giving bots time to collect ordered items so
+        -- the next round's contents reads are close to accurate.
         pass.cursor = 1
-        queue_expired_orders(pass)
+        pass.resume_tick = game.tick
+          + math.floor(settings.global["round-delay-seconds"].value * 60)
+        return
+      end
+      local slot = slots[pass.cursor]
+      pass.cursor = pass.cursor + 1
+      pass.network = enter_network(slot.network, slot.surface_index)
+    elseif net.entities and net.entity_index <= #net.entities then
+      budget = budget - 1
+      local entity = net.entities[net.entity_index]
+      net.entity_index = net.entity_index + 1
+      examine(net, entity)
+      if net.bots <= 0 then
+        -- Bot headroom spent: abandon the rest of this network
+        pass.network = nil
+      end
+    else
+      net.cell_index = net.cell_index + 1
+      if net.cell_index > #net.cells then
+        pass.network = nil
+      elseif scanned_cell_this_invocation then
+        -- At most one scan burst per invocation; resume here next time
+        net.cell_index = net.cell_index - 1
+        return
       else
-        entered = entered + 1
-        local slot = slots[pass.cursor]
-        pass.cursor = pass.cursor + 1
-        budget = enter_network(slot.network, slot.surface_index, pass, budget)
+        scanned_cell_this_invocation = true
+        budget = budget - 1
+        net.entities = scan_cell(net)
+        net.entity_index = 1
+        if not net.entities then
+          pass.network = nil
+        end
       end
     end
   end
-
-  -- The reserved share plus any leftover refreshes cached positions
-  local refresh = refresh_budget + math.max(0, budget)
-  if refresh > 0 then
-    index.refresh_slice(refresh)
-  end
-end
-
--- Lifecycle event handlers ------------------------------------------------
-
--- Player (or another mod) cancelled one of our marks: drop the order and
--- back off briefly so we don't instantly re-mark against their intent.
-function gardener.on_cancelled_upgrade(event)
-  local entity = event.entity
-  if not (entity and entity.valid) then return end
-  local unit_number = entity.unit_number
-  if unit_number and storage.ledger[unit_number] then
-    remove_order(unit_number)
-    storage.cooldown[unit_number] = game.tick + REMARK_COOLDOWN_TICKS
-  end
-end
-
--- Universal catch-all for marked entities: upgrade completed, died, mined,
--- or destroyed by script. Registration persists through save/load.
-function gardener.on_object_destroyed(event)
-  if event.type ~= defines.target_type.entity then return end
-  local unit_number = event.useful_id
-  if unit_number == 0 then return end
-  local entry = storage.ledger[unit_number]
-  if entry then
-    index.remove_key(entry.surface_index, entry.item_name, entry.tier, unit_number)
-    remove_order(unit_number)
-  end
-  storage.cooldown[unit_number] = nil
-end
-
--- A bot built something: index it (closing the loop — a just-upgraded
--- building immediately becomes a candidate for the next tier), and if it
--- completes one of our orders, restore captured runtime state. The new
--- entity has no link to the old one, so correlate by position.
-function gardener.on_robot_built_entity(event)
-  local entity = event.entity
-  if not entity.valid then return end
-  if not index.placing_item_name(entity) then return end
-
-  index.add(entity)
-
-  local position = entity.position
-  local surface_index = entity.surface.index
-  local unit_number = storage.ledger_by_position[position_key(surface_index, position.x, position.y)]
-  local entry = unit_number and storage.ledger[unit_number]
-  if entry and entry.item_name == index.placing_item_name(entity)
-    and entry.target_tier == qualities.tier_of(entity.quality.name) then
-    local restore = entry.restore
-    if restore then
-      if restore.energy ~= nil then entity.energy = restore.energy end
-      if restore.always_on ~= nil then entity.always_on = restore.always_on end
-      if restore.send_to_orbit ~= nil then entity.send_to_orbit_automatically = restore.send_to_orbit end
-    end
-    -- The old entity's on_object_destroyed may not have fired yet; clean up
-    -- its ledger entry and index record now (the later event then no-ops)
-    index.remove_key(entry.surface_index, entry.item_name, entry.tier, unit_number)
-    remove_order(unit_number)
-  end
-end
-
--- Recovery path (on_configuration_changed / quality-gardener-init): adopt an
--- existing upgrade mark into the ledger when it looks like ours — same name,
--- higher quality target.
-function gardener.adopt(entity)
-  if not entity.to_be_upgraded() then return end
-  local target_prototype, target_quality = entity.get_upgrade_target()
-  if not (target_prototype and target_quality) then return end
-  if target_prototype.name ~= entity.name then return end
-
-  local tier = qualities.tier_of(entity.quality.name)
-  local target_tier = qualities.tier_of(target_quality.name)
-  if not (tier and target_tier) or target_tier <= tier then return end
-
-  local item_name = index.placing_item_name(entity)
-  if not item_name then return end
-
-  script.register_on_object_destroyed(entity)
-  add_order(entity, item_name, tier, target_tier, capture_restore(entity),
-    entity.surface.index, entity.position)
 end
 
 return gardener

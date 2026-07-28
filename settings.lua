@@ -2,11 +2,11 @@
 data:extend({
     {
         type = "int-setting",
-        name = "entities-per-tick",
+        name = "entities-per-pass",
         setting_type = "runtime-global",
-        default_value = 20,
+        default_value = 50,
         minimum_value = 1,
-        maximum_value = 1000,
+        maximum_value = 10000,
         order = "a-0"
     },
     {
@@ -20,11 +20,11 @@ data:extend({
     },
     {
         type = "double-setting",
-        name = "order-timeout-minutes",
+        name = "round-delay-seconds",
         setting_type = "runtime-global",
-        default_value = 3,
+        default_value = 20,
         minimum_value = 0,
-        maximum_value = 600,
+        maximum_value = 3600,
         order = "a-2"
     },
     -- Hidden quality handling (for mods like Quality++ Shiny)

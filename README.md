@@ -26,27 +26,27 @@ per-type toggles.
 
 ## Behavior details
 
-- **Starved orders clean themselves up.** If supply vanishes after marking (players,
-  blueprints, or other demand took the items), the order is cancelled after a
-  configurable timeout instead of pending forever with missing-material alerts.
-  Orders that are merely slow re-mark automatically while supply persists.
-- **Player intent is respected.** Marks made with the upgrade planner are never touched,
-  and cancelling one of the mod's marks puts that building on a brief cooldown.
-- **Runtime state survives.** Accumulator charge, lamp always-on, and rocket silo
-  auto-launch settings are restored after the swap (bots natively transfer inventory,
-  modules, and fuel).
+- **Just like your own upgrade marks.** The mod's upgrades are ordinary native
+  upgrade orders — bots transfer inventory, modules, and fuel exactly as they would
+  for an upgrade-planner pass. The mod never cancels any mark, its own included: an
+  order whose supply was taken pends with the usual missing-material alert until a
+  player clears it or supply reappears.
+- **Existing marks count as demand.** Anything already marked for upgrade — by you,
+  the mod, or another mod — consumes the matching supply, so the same item is never
+  promised twice.
 - **Reserve.** Optionally keep N of each item-quality combination untouched in storage
   as a float for new construction.
-- **Smooth, constant cost.** Work is spread evenly across ticks, never a burst scan
-  or a lag spike.
+- **Smooth, constant cost.** Networks are visited round-robin in small slices, with a
+  rest between rounds while bots collect their items — never a burst scan or a lag
+  spike.
 
 ## Settings
 
 | Setting | Default | Notes |
 |---|---|---|
-| Entities per tick | 20 | Work budget per tick; lower for weaker machines, raise for faster processing |
+| Entities per pass | 50 | Work budget per processing slice; lower for weaker machines, raise for faster processing |
 | Reserve per item | 0 | Spares kept untouched per item-quality |
-| Order timeout | 3 min | 0 = never cancel (vanilla pending-order behavior) |
+| Round delay | 20 s | Rest between rounds so bots can pick up ordered items |
 | Hidden-quality handling | — | Skip and/or sticky startup options for mods like Quality++ Shiny |
 
 ## Compatibility
@@ -54,5 +54,11 @@ per-type toggles.
 Works with any quality mod — quality chains are walked via the prototype graph, never
 hardcoded, including hidden qualities (skip/sticky startup settings).
 
-If the mod's state ever looks wrong, `/quality-gardener-init` rebuilds everything from
-the world (the entity's own upgrade marks are the source of truth).
+The mod keeps no state about your base — every round reads the world fresh, so
+there is nothing to get out of sync. `/quality-gardener-init` resets the pass cursor
+if you ever want a clean restart.
+
+One consequence of statelessness: if you cancel a mark the mod made while the
+higher-quality item is still in storage, the mod will re-mark it on a later round.
+To keep a building at its quality permanently, remove the spare items from that
+network (or use the reserve setting).
