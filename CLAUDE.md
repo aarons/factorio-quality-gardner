@@ -76,6 +76,11 @@ upgrades on the spot.* `README.md` covers player-facing intent and behavior.
 - Ghost provisioning is always on — no toggle. A ghost whose exact quality is
   stocked is left to the bots (counted as demand); otherwise it is retargeted to
   the best stocked tier, even a lower one. Deliberate (July 2026).
+- Module provisioning is quality-only and always on — never change which module
+  prototype sits in or is requested for a slot, only its quality. Installed modules
+  are only ever upgraded (a player chose them); unfulfillable *requests* are
+  retargeted in either direction, a downgrade beating an empty slot. Built entities
+  only — ghost module slots are out of scope. Deliberate (July 2026).
 - No PickerDollies/teleport-mod event integration: no positions are cached anywhere —
   every round scans entities fresh, so untracked teleports cannot go stale.
   Deliberate (July 2026) — don't resubscribe to dolly events.
@@ -102,9 +107,34 @@ folder.
   returning `false`, not by erroring.
 - Requester-chest contents do not count toward logistic network contents; a bare
   `get_contents()` only reports what bots can actually draw from.
+- Item-request-proxy (verified against runtime-api v2.1.12):
+  `LuaEntity.insert_plan` and `.removal_plan` are **read-write**
+  `array[BlueprintInsertPlan]` — retargeting an existing proxy is a plain
+  assignment. A plan is `{id = {name, quality}, items = {in_inventory =
+  {{inventory, stack, count?}}}}` where `name`/`quality` are plain **strings**
+  (not prototypes), `inventory` is a `defines.inventory` value, and `stack` is
+  **0-based** (LuaInventory slots are 1-based).
+- `entity.item_request_proxy` (read-only) returns the first proxy targeting the
+  entity; multiple proxies per entity are possible but there is no plural accessor.
+  `proxy.proxy_target` is the reverse link.
+- `surface.create_entity{name = "item-request-proxy", target = <required entity>,
+  position, force, modules = <insert plans>, removal_plan = <removal plans>}` —
+  `modules` takes full `BlueprintInsertPlan`s despite the legacy name, and
+  `removal_plan` is accepted at creation time.
+- `entity.get_module_inventory()` returns `LuaInventory?`; `LuaInventory.index`
+  gives the matching `defines.inventory` value (no hand-built per-type table
+  needed). Per-slot stacks expose `.name` (string) and `.quality`
+  (`LuaQualityPrototype`); check `valid_for_read` first.
+- Bots performing a module swap use the removal plan to return the old module to
+  storage — no special handling needed (confirmed by the mod author).
 - Still unverified in-game: that construction bots pull upgrade items from network
   supply as expected. If orders stall despite stock, check this first.
 - Still unverified in-game (ghost provisioning): that `order_upgrade` on an
   entity-ghost applies instantly (upgrade-planner-on-ghost behavior), preserves ghost
   settings and `item_requests`, and supports quality downgrades. Verify, then move
   these up into the verified list.
+- Still unverified in-game (module provisioning): that writing `insert_plan` on a
+  dispatched proxy re-issues bot orders cleanly, and that a removal and insert
+  targeting the same slot resolve pickup-before-delivery (vanilla's
+  upgrade-planner-on-modules does exactly this, but it's undocumented). Verify,
+  then move these up.

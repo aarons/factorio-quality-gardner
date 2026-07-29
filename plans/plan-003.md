@@ -1,8 +1,8 @@
 # Module provisioning: upgrade installed modules, fulfil module ghosts
 
 Extend matching to modules: when network storage holds a better-quality version
-of a module installed in an entity, swap it in; when a module request on a
-ghost or entity can't be met at its exact quality, retarget it to the best
+of a module installed in an entity, swap it in; when a module request on an entity
+can't be met at its exact quality, retarget it to the best
 available quality (downgrades included, same philosophy as plan-002).
 
 Depends on plans 001 and 002. This is the most API-uncertain chunk — it begins
@@ -10,14 +10,13 @@ with a verification step, and its findings may reshape the approach.
 
 ## Context
 
-Machines carry modules; blueprints and ghosts carry module *requests*. Both
-have the same quality-mismatch problem as entities:
+Machines carry modules and module requests.
 
 - An entity has a common speed module installed while a rare one sits in
   storage → nobody upgrades it.
-- A ghost (or a freshly built machine) requests legendary modules that aren't
-  stocked → the request sits unfulfilled forever, exactly like the
-  unfulfillable ghosts of plan-002.
+- An entity has a request for a rare speed module, there is none in storage, but
+  there are lower quality ones available -> it sits empty until rare shows up, instead
+  of being filled by something lower for now.
 
 Scope: same-module quality changes only — never change which module prototype
 is requested, only its quality. Both directions follow plan-002's philosophy:
@@ -41,9 +40,7 @@ available for this) and in-game:
   target = <entity>, position = ..., force = ..., modules = ...}` — exact
   parameter shape for requesting "remove module X quality a from slot n, insert
   quality b."
-- How an unfulfilled module request appears on a built entity vs a ghost: on
-  ghosts, module requests live in `entity.item_requests`
-  (array of `ItemWithQualityCount`) and materialize as a proxy on revive; on
+- How an unfulfilled module request appears on a built entity: on
   built entities, a pending request is an existing proxy attached to the
   entity. Confirm how to find a proxy for an entity
   (`find_entities_filtered{type = "item-request-proxy"}` in the scan area, or
@@ -55,16 +52,12 @@ available for this) and in-game:
 - Reading installed modules: `entity.get_module_inventory()` →
   `LuaInventory`; per-slot `LuaItemStack.name` / `.quality`.
 - Whether bots performing a module swap use the removal plan to return the old
-  module to storage.
+  module to storage. (Note from mod author: yes they do, we don't need to do any special handling here).
 
 Record what's confirmed in CLAUDE.md's verified-facts section.
 
 Supply side needs no new reads: module items appear in the same bare
-`get_contents()` snapshot. Plan-001 suggested filtering the snapshot to items
-that place entities — widen that filter to also keep module items
-(`prototypes.item`, modules have `type == "module"`; precompute a
-`module_item` set in `build_and_store_config`). Module quality tiers use the
-same `qualities` chain.
+`get_contents()` snapshot.
 
 ## Suggested Approach
 
@@ -85,19 +78,9 @@ iteration budget still holds. Three cases:
    stocked: retarget the proxy's insert plans to the best stocked tier of the
    same module. Count fulfillable proxy requests as demand (decrement supply),
    mirroring plan-002's ghost accounting.
-3. **Ghost module requests** (`item_requests`): where the requested quality
-   isn't stocked but another tier is, rewrite the request to the best stocked
-   tier — verify `item_requests` is writable on ghosts; if not, this case may
-   need to wait for revive and be handled by case 2. Fulfillable requests
-   count as demand.
 
 Skip entities marked for deconstruction or upgrade (an upgrade swap would
 orphan the proxy work). Respect `reserve-per-item` for module items too.
-
-Guard against thrash: only order a swap when the target tier is strictly
-better than the installed one, and never swap a module that is already the
-best stocked tier — the demand accounting plus the round delay should prevent
-oscillation, but confirm with two networks sharing storage.
 
 ## Testing
 
@@ -108,13 +91,8 @@ No test suite (project convention); `./validate.sh` plus in-game checks.
 - `./validate.sh` passes.
 - Entity with common modules + rare modules in storage → bots swap them; the
   displaced common modules return to storage.
-- Machine ghost requesting legendary modules, only uncommon stocked → built
-  with uncommon modules (via retargeted request), later upgraded when
-  legendary appears.
 - Module swaps respect bot cap, `reserve-per-item`, and the feature toggle.
 - Requests at a stocked quality are never touched.
-- No oscillation: two rounds after stock stabilizes, no further module orders
-  are issued.
 - Entities marked for upgrade or deconstruction get no module orders.
 
 ## Documentation

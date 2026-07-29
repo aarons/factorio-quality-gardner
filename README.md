@@ -27,6 +27,14 @@ work. No manual upgrade-planner passes needed.
   than no factory — and it self-heals: the downgraded building is an ordinary
   upgrade candidate, raised back up tier by tier as better stock appears.
 
+- **Modules are gardened too.** An installed module with a higher-quality version in
+  storage gets swapped by the bots, the displaced module returning to storage — the
+  same cascade as buildings. And a module request no bot can fill (the requested
+  quality is out of stock) is retargeted to the best quality on hand, even a lower
+  one — a filled slot now beats an empty one — then raised back up as better stock
+  appears. Installed modules are only ever upgraded, never downgraded, and only the
+  quality moves: the mod never changes which module you chose.
+
 Everything placeable and upgradable is covered — assemblers down to belts, pipes, and
 poles. Coverage is derived from prototypes (anything placed from an item that the game
 allows upgrading), so modded buildings are included automatically. There are no

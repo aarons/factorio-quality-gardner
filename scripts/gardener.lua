@@ -16,6 +16,14 @@ player's, and cancelling a player's mark is off-limits.
 Ghosts are scanned too: one requesting a stocked quality just consumes supply
 as demand; one requesting an unstocked quality is retargeted to the best
 quality on hand — even a lower one — so it gets built at all.
+
+Modules follow the same philosophy on built entities only (ghost module slots
+are out of scope). An installed module with a higher stocked tier gets a swap
+ordered through an item-request-proxy; a pending proxy request whose quality
+is stocked is left to the bots (counted as demand); one whose quality is out
+of stock is retargeted to the best stocked tier of the same module — even a
+lower one, because a downgrade beats an empty slot. Module changes are
+quality-only: which module prototype sits in a slot is never changed.
 ]]
 
 local qualities = require("scripts.qualities")
@@ -159,6 +167,146 @@ local function examine_ghost(net, entity)
   end
 end
 
+-- Building upgrade: mark the entity when a higher tier of its placing item is
+-- stocked. Returns true when an order was issued (module work then waits for
+-- a later round — an upgrade swap would orphan any proxy work).
+local function examine_building(net, entity)
+  local item_name = storage.config.placing_item_name[entity.name]
+  if not item_name then return false end
+  local tier = qualities.tier_of(entity.quality.name)
+  if not tier then return false end
+
+  local by_tier = net.supply[item_name]
+  if not by_tier then return false end
+  local target_tier = best_stocked_tier(by_tier)
+  if not target_tier or target_tier <= tier then return false end
+
+  local ok = entity.order_upgrade{
+    target = {name = entity.name, quality = qualities.at(target_tier).name},
+    force = entity.force,
+  }
+  if ok then
+    by_tier[target_tier] = by_tier[target_tier] - 1
+    net.bots = net.bots - 1
+  end
+  return ok
+end
+
+-- Modules a plan row asks for: the sum of its per-stack counts. Rows with no
+-- inventory positions (e.g. equipment-grid requests) count as zero.
+local function plan_module_count(plan)
+  local positions = plan.items and plan.items.in_inventory
+  if not positions then return 0 end
+  local count = 0
+  for _, position in ipairs(positions) do
+    count = count + (position.count or 1)
+  end
+  return count
+end
+
+-- A pending proxy on a built entity. Every fulfillable request row consumes
+-- supply as demand (the proxy is a visible mark, whoever made it). A module
+-- row whose quality is out of stock is retargeted in place — insert_plan is
+-- read-write — to the best stocked tier of the same module, a downgrade
+-- included: filled now beats empty until the requested tier shows up. Only
+-- the quality moves; the module prototype and slot positions are untouched.
+-- Non-module rows (fuel, ammo) are never retargeted.
+--
+-- Overlapping cells can revisit the same proxy within one visit; while stock
+-- at the requested tier stays positive the second pass just re-counts demand,
+-- and only exhausted stock can step a row down again. Accepted thrash — items
+-- in flight are invisible to the snapshot either way.
+local function examine_proxy(net, proxy)
+  local plans = proxy.insert_plan
+  local changed = false
+  for _, plan in ipairs(plans) do
+    local tier = qualities.tier_of(plan.id.quality or "normal")
+    local by_tier = tier and net.supply[plan.id.name]
+    if by_tier then
+      local count = plan_module_count(plan)
+      local stock = by_tier[tier]
+      if stock and stock > 0 then
+        -- Stocked: bots will fill this; its demand consumes the supply.
+        by_tier[tier] = stock - count
+      elseif count > 0 and count <= net.bots
+        and storage.config.module_item[plan.id.name] then
+        local best = best_stocked_tier(by_tier)
+        if best then
+          plan.id.quality = qualities.at(best).name
+          by_tier[best] = by_tier[best] - count
+          net.bots = net.bots - count
+          changed = true
+        end
+      end
+    end
+  end
+  if changed then
+    proxy.insert_plan = plans
+  end
+end
+
+-- Installed modules: for each slot holding a module with a higher stocked
+-- tier, order a swap — removal of the installed module plus insert of the
+-- better one at the same slot — batched into one proxy per entity. Installed
+-- modules are never downgraded: a player chose them, and unlike a request an
+-- installed module is not an empty slot waiting to be filled. Removals are
+-- ignored in the supply snapshot (stock returns only after the bot trip);
+-- each insert costs one unit of bot headroom.
+local function examine_modules(net, entity)
+  local module_inventory = entity.get_module_inventory()
+  if not module_inventory or #module_inventory == 0 then return end
+
+  local proxy = entity.item_request_proxy
+  if proxy and proxy.valid then
+    -- An in-flight proxy owns this entity's module logistics; only its
+    -- requests are examined. Installed-module swaps wait for a later round.
+    return examine_proxy(net, proxy)
+  end
+
+  local inventory_index = module_inventory.index
+  if not inventory_index then return end
+
+  local removal_plans, insert_plans
+  for slot = 1, #module_inventory do
+    if net.bots <= 0 then break end
+    local stack = module_inventory[slot]
+    if stack.valid_for_read then
+      local tier = qualities.tier_of(stack.quality.name)
+      local by_tier = tier and net.supply[stack.name]
+      if by_tier then
+        local best = best_stocked_tier(by_tier)
+        if best and best > tier then
+          -- Plan stack indices are 0-based, unlike LuaInventory's 1-based.
+          local position = {inventory = inventory_index, stack = slot - 1, count = 1}
+          removal_plans = removal_plans or {}
+          removal_plans[#removal_plans + 1] = {
+            id = {name = stack.name, quality = stack.quality.name},
+            items = {in_inventory = {position}},
+          }
+          insert_plans = insert_plans or {}
+          insert_plans[#insert_plans + 1] = {
+            id = {name = stack.name, quality = qualities.at(best).name},
+            items = {in_inventory = {position}},
+          }
+          by_tier[best] = by_tier[best] - 1
+          net.bots = net.bots - 1
+        end
+      end
+    end
+  end
+
+  if insert_plans then
+    entity.surface.create_entity{
+      name = "item-request-proxy",
+      position = entity.position,
+      force = entity.force,
+      target = entity,
+      modules = insert_plans,
+      removal_plan = removal_plans,
+    }
+  end
+end
+
 -- One iteration: examine one scanned entity, first-come-first-served in scan
 -- order. Duplicates from overlapping cells are harmless — once marked, later
 -- encounters take the demand-accounting path.
@@ -168,14 +316,11 @@ local function examine(net, entity)
   if entity.name == "entity-ghost" then
     return examine_ghost(net, entity)
   end
-  local item_name = storage.config.placing_item_name[entity.name]
-  if not item_name then return end
-  local tier = qualities.tier_of(entity.quality.name)
-  if not tier then return end
   if entity.to_be_deconstructed() then return end
 
   if entity.to_be_upgraded() then
     -- Demand accounting: an existing mark consumes supply at its target.
+    -- Marked entities get no module orders — the swap would orphan them.
     local target_prototype, target_quality = entity.get_upgrade_target()
     local target_item = target_prototype
       and storage.config.placing_item_name[target_prototype.name]
@@ -187,18 +332,9 @@ local function examine(net, entity)
     return
   end
 
-  local by_tier = net.supply[item_name]
-  if not by_tier then return end
-  local target_tier = best_stocked_tier(by_tier)
-  if not target_tier or target_tier <= tier then return end
-
-  local ok = entity.order_upgrade{
-    target = {name = entity.name, quality = qualities.at(target_tier).name},
-    force = entity.force,
-  }
-  if ok then
-    by_tier[target_tier] = by_tier[target_tier] - 1
-    net.bots = net.bots - 1
+  if examine_building(net, entity) then return end
+  if net.bots > 0 then
+    examine_modules(net, entity)
   end
 end
 

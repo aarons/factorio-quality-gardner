@@ -6,6 +6,11 @@ Date: 28. 07. 2026
       retargeted to the best quality the network does have - even a lower one - so the building
       gets built instead of waiting forever. Once built, it is an ordinary upgrade candidate and
       is raised back up as better stock appears. Always on.
+    - Module provisioning: installed modules with a higher-quality version in storage are swapped
+      by the bots (the displaced module returns to storage), and module requests stuck on an
+      out-of-stock quality are retargeted to the best quality on hand - even a lower one - so the
+      slot gets filled at all. Quality-only: the mod never changes which module is installed or
+      requested, and installed modules are never downgraded. Always on.
   Changes:
     - Removed the hidden-quality startup settings (skip and sticky). Every quality reachable from
       normal is treated alike; special handling for other mods' hidden qualities may return once

@@ -15,6 +15,12 @@ local function build_and_store_config()
   local placing_item_name = {}
   local is_tracked_type = {}
   local all_tracked_types = {}
+  local module_item = {}
+  for name, prototype in pairs(prototypes.item) do
+    if prototype.type == "module" then
+      module_item[name] = true
+    end
+  end
   for name, prototype in pairs(prototypes.entity) do
     if not prototype.has_flag("not-upgradable") then
       local items = prototype.items_to_place_this
@@ -33,6 +39,7 @@ local function build_and_store_config()
   storage.config = {
     placing_item_name = placing_item_name,
     all_tracked_types = all_tracked_types,
+    module_item = module_item,
   }
 end
 
