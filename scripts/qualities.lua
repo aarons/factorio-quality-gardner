@@ -16,11 +16,11 @@ local tier_by_name = {}   -- quality prototype name -> tier
 
 function qualities.initialize()
   chain, tier_by_name = {}, {}
-  local q = prototypes.quality["normal"]
-  while q do
-    chain[#chain + 1] = q
-    tier_by_name[q.name] = #chain
-    q = q.next
+  local quality = prototypes.quality["normal"]
+  while quality do
+    chain[#chain + 1] = quality
+    tier_by_name[quality.name] = #chain
+    quality = quality.next
   end
 end
 

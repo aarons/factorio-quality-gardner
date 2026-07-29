@@ -49,7 +49,7 @@ end
 
 local function initialize(command)
   build_and_store_config()
-  gardener.init_storage()
+  gardener.initialize_storage()
   qualities.initialize()
   register_event_handlers()
 

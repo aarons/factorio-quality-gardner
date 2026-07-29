@@ -34,7 +34,7 @@ local gardener = {}
 -- iterations.
 gardener.PASS_INTERVAL_TICKS = 10
 
-function gardener.init_storage()
+function gardener.initialize_storage()
   -- The resumable cursor is the only cross-tick state; abandoning it is
   -- always safe (the next pass re-derives everything from the world).
   storage.pass = {cursor = 1}
@@ -77,8 +77,8 @@ end
 local function enter_network(network, surface_index)
   if not network.valid then return nil end
 
-  local bots = network.available_construction_robots
-  if bots == 0 then return nil end
+  local bot_headroom = network.available_construction_robots
+  if bot_headroom == 0 then return nil end
 
   local supply = read_supply(network)
 
@@ -105,7 +105,7 @@ local function enter_network(network, surface_index)
   return {
     surface_index = surface_index,
     supply = supply,
-    bots = bots,
+    bot_headroom = bot_headroom,
     cells = cells,
     cell_index = 0,
     entities = nil,
@@ -135,12 +135,12 @@ end
 -- the building gets built at all. The originally requested quality is not
 -- remembered: once built, the entity is an ordinary upgrade candidate that
 -- chases the best available supply.
-local function examine_ghost(net, entity)
+local function examine_ghost(network_snapshot, entity)
   local item_name = storage.config.placing_item_name[entity.ghost_name]
   if not item_name then return end
   local tier = qualities.tier_of(entity.quality.name)
   if not tier then return end
-  local by_tier = net.supply[item_name]
+  local by_tier = network_snapshot.supply[item_name]
   if not by_tier then return end
 
   local stock = by_tier[tier]
@@ -163,20 +163,20 @@ local function examine_ghost(net, entity)
   if ok then
     -- Without the retarget the ghost consumed no bot; now one will build it.
     by_tier[best] = by_tier[best] - 1
-    net.bots = net.bots - 1
+    network_snapshot.bot_headroom = network_snapshot.bot_headroom - 1
   end
 end
 
 -- Building upgrade: mark the entity when a higher tier of its placing item is
 -- stocked. Returns true when an order was issued (module work then waits for
 -- a later round — an upgrade swap would orphan any proxy work).
-local function examine_building(net, entity)
+local function examine_building(network_snapshot, entity)
   local item_name = storage.config.placing_item_name[entity.name]
   if not item_name then return false end
   local tier = qualities.tier_of(entity.quality.name)
   if not tier then return false end
 
-  local by_tier = net.supply[item_name]
+  local by_tier = network_snapshot.supply[item_name]
   if not by_tier then return false end
   local target_tier = best_stocked_tier(by_tier)
   if not target_tier or target_tier <= tier then return false end
@@ -187,7 +187,7 @@ local function examine_building(net, entity)
   }
   if ok then
     by_tier[target_tier] = by_tier[target_tier] - 1
-    net.bots = net.bots - 1
+    network_snapshot.bot_headroom = network_snapshot.bot_headroom - 1
   end
   return ok
 end
@@ -216,25 +216,25 @@ end
 -- at the requested tier stays positive the second pass just re-counts demand,
 -- and only exhausted stock can step a row down again. Accepted thrash — items
 -- in flight are invisible to the snapshot either way.
-local function examine_proxy(net, proxy)
+local function examine_proxy(network_snapshot, proxy)
   local plans = proxy.insert_plan
   local changed = false
   for _, plan in ipairs(plans) do
     local tier = qualities.tier_of(plan.id.quality or "normal")
-    local by_tier = tier and net.supply[plan.id.name]
+    local by_tier = tier and network_snapshot.supply[plan.id.name]
     if by_tier then
       local count = plan_module_count(plan)
       local stock = by_tier[tier]
       if stock and stock > 0 then
         -- Stocked: bots will fill this; its demand consumes the supply.
         by_tier[tier] = stock - count
-      elseif count > 0 and count <= net.bots
+      elseif count > 0 and count <= network_snapshot.bot_headroom
         and storage.config.module_item[plan.id.name] then
         local best = best_stocked_tier(by_tier)
         if best then
           plan.id.quality = qualities.at(best).name
           by_tier[best] = by_tier[best] - count
-          net.bots = net.bots - count
+          network_snapshot.bot_headroom = network_snapshot.bot_headroom - count
           changed = true
         end
       end
@@ -252,7 +252,7 @@ end
 -- installed module is not an empty slot waiting to be filled. Removals are
 -- ignored in the supply snapshot (stock returns only after the bot trip);
 -- each insert costs one unit of bot headroom.
-local function examine_modules(net, entity)
+local function examine_modules(network_snapshot, entity)
   local module_inventory = entity.get_module_inventory()
   if not module_inventory or #module_inventory == 0 then return end
 
@@ -260,7 +260,7 @@ local function examine_modules(net, entity)
   if proxy and proxy.valid then
     -- An in-flight proxy owns this entity's module logistics; only its
     -- requests are examined. Installed-module swaps wait for a later round.
-    return examine_proxy(net, proxy)
+    return examine_proxy(network_snapshot, proxy)
   end
 
   local inventory_index = module_inventory.index
@@ -268,11 +268,11 @@ local function examine_modules(net, entity)
 
   local removal_plans, insert_plans
   for slot = 1, #module_inventory do
-    if net.bots <= 0 then break end
+    if network_snapshot.bot_headroom <= 0 then break end
     local stack = module_inventory[slot]
     if stack.valid_for_read then
       local tier = qualities.tier_of(stack.quality.name)
-      local by_tier = tier and net.supply[stack.name]
+      local by_tier = tier and network_snapshot.supply[stack.name]
       if by_tier then
         local best = best_stocked_tier(by_tier)
         if best and best > tier then
@@ -289,7 +289,7 @@ local function examine_modules(net, entity)
             items = {in_inventory = {position}},
           }
           by_tier[best] = by_tier[best] - 1
-          net.bots = net.bots - 1
+          network_snapshot.bot_headroom = network_snapshot.bot_headroom - 1
         end
       end
     end
@@ -310,11 +310,11 @@ end
 -- One iteration: examine one scanned entity, first-come-first-served in scan
 -- order. Duplicates from overlapping cells are harmless — once marked, later
 -- encounters take the demand-accounting path.
-local function examine(net, entity)
+local function examine(network_snapshot, entity)
   if not entity.valid then return end
   if entity.force.name ~= "player" then return end
   if entity.name == "entity-ghost" then
-    return examine_ghost(net, entity)
+    return examine_ghost(network_snapshot, entity)
   end
   if entity.to_be_deconstructed() then return end
 
@@ -324,7 +324,7 @@ local function examine(net, entity)
     local target_prototype, target_quality = entity.get_upgrade_target()
     local target_item = target_prototype
       and storage.config.placing_item_name[target_prototype.name]
-    local by_tier = target_item and net.supply[target_item]
+    local by_tier = target_item and network_snapshot.supply[target_item]
     local target_tier = target_quality and qualities.tier_of(target_quality.name)
     if by_tier and target_tier then
       by_tier[target_tier] = (by_tier[target_tier] or 0) - 1
@@ -332,9 +332,9 @@ local function examine(net, entity)
     return
   end
 
-  if examine_building(net, entity) then return end
-  if net.bots > 0 then
-    examine_modules(net, entity)
+  if examine_building(network_snapshot, entity) then return end
+  if network_snapshot.bot_headroom > 0 then
+    examine_modules(network_snapshot, entity)
   end
 end
 
@@ -358,11 +358,11 @@ end
 
 -- Scan one construction cell's area for entities the pass can act on.
 -- Returns nil if the surface vanished mid-visit.
-local function scan_cell(net)
-  local surface = game.get_surface(net.surface_index)
+local function scan_cell(network_snapshot)
+  local surface = game.get_surface(network_snapshot.surface_index)
   if not surface then return nil end
   return surface.find_entities_filtered{
-    area = net.cells[net.cell_index],
+    area = network_snapshot.cells[network_snapshot.cell_index],
     force = "player",
     type = storage.config.all_tracked_types,
   }
@@ -379,8 +379,8 @@ function gardener.on_pass()
   local scanned_cell_this_invocation = false
 
   while budget > 0 do
-    local net = pass.network
-    if not net then
+    local network_snapshot = pass.network_snapshot
+    if not network_snapshot then
       -- One iteration: advance the cursor and enter the next network
       budget = budget - 1
       local slots = collect_network_slots()
@@ -394,31 +394,31 @@ function gardener.on_pass()
       end
       local slot = slots[pass.cursor]
       pass.cursor = pass.cursor + 1
-      pass.network = enter_network(slot.network, slot.surface_index)
-    elseif net.entities and net.entity_index <= #net.entities then
+      pass.network_snapshot = enter_network(slot.network, slot.surface_index)
+    elseif network_snapshot.entities and network_snapshot.entity_index <= #network_snapshot.entities then
       budget = budget - 1
-      local entity = net.entities[net.entity_index]
-      net.entity_index = net.entity_index + 1
-      examine(net, entity)
-      if net.bots <= 0 then
+      local entity = network_snapshot.entities[network_snapshot.entity_index]
+      network_snapshot.entity_index = network_snapshot.entity_index + 1
+      examine(network_snapshot, entity)
+      if network_snapshot.bot_headroom <= 0 then
         -- Bot headroom spent: abandon the rest of this network
-        pass.network = nil
+        pass.network_snapshot = nil
       end
     else
-      net.cell_index = net.cell_index + 1
-      if net.cell_index > #net.cells then
-        pass.network = nil
+      network_snapshot.cell_index = network_snapshot.cell_index + 1
+      if network_snapshot.cell_index > #network_snapshot.cells then
+        pass.network_snapshot = nil
       elseif scanned_cell_this_invocation then
         -- At most one scan burst per invocation; resume here next time
-        net.cell_index = net.cell_index - 1
+        network_snapshot.cell_index = network_snapshot.cell_index - 1
         return
       else
         scanned_cell_this_invocation = true
         budget = budget - 1
-        net.entities = scan_cell(net)
-        net.entity_index = 1
-        if not net.entities then
-          pass.network = nil
+        network_snapshot.entities = scan_cell(network_snapshot)
+        network_snapshot.entity_index = 1
+        if not network_snapshot.entities then
+          pass.network_snapshot = nil
         end
       end
     end
