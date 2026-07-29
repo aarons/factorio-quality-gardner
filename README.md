@@ -19,6 +19,14 @@ work. No manual upgrade-planner passes needed.
   itself a candidate for the next tier. Quality ripples through the base with no
   extra logic — over months of play a machine can walk normal → rare → legendary.
 
+- **Ghosts get built with what's on hand.** Construction bots only fulfil a ghost
+  from stock that exactly matches its quality — stamp a legendary blueprint with
+  only common machines in storage and nothing is ever built. Quality Gardener steps
+  in: if the exact quality is missing but any tier of the item is stocked, the ghost
+  is re-ordered at the best available tier, even a lower one. Better a slow factory
+  than no factory — and it self-heals: the downgraded building is an ordinary
+  upgrade candidate, raised back up tier by tier as better stock appears.
+
 Everything placeable and upgradable is covered — assemblers down to belts, pipes, and
 poles. Coverage is derived from prototypes (anything placed from an item that the game
 allows upgrading), so modded buildings are included automatically. There are no
@@ -47,12 +55,11 @@ per-type toggles.
 | Entities per pass | 50 | Work budget per processing slice; lower for weaker machines, raise for faster processing |
 | Reserve per item | 0 | Spares kept untouched per item-quality |
 | Round delay | 20 s | Rest between rounds so bots can pick up ordered items |
-| Hidden-quality handling | — | Skip and/or sticky startup options for mods like Quality++ Shiny |
 
 ## Compatibility
 
 Works with any quality mod — quality chains are walked via the prototype graph, never
-hardcoded, including hidden qualities (skip/sticky startup settings).
+hardcoded.
 
 The mod keeps no state about your base — every round reads the world fresh, so
 there is nothing to get out of sync. `/quality-gardener-init` resets the pass cursor

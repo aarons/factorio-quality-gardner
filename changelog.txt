@@ -1,7 +1,15 @@
 ---------------------------------------------------------------------------------------------------
 Version: 0.2.0
 Date: 28. 07. 2026
+  Features:
+    - Ghost provisioning: when a ghost requests a quality the network does not stock, the ghost is
+      retargeted to the best quality the network does have - even a lower one - so the building
+      gets built instead of waiting forever. Once built, it is an ordinary upgrade candidate and
+      is raised back up as better stock appears. Always on.
   Changes:
+    - Removed the hidden-quality startup settings (skip and sticky). Every quality reachable from
+      normal is treated alike; special handling for other mods' hidden qualities may return once
+      the core is proven.
     - Rewrote the engine as a stateless scan: each logistic network is visited round-robin, its
       contents are read fresh, and its roboport coverage is scanned for upgrade candidates. No
       per-entity state is kept anywhere, so nothing can get out of sync with the world.

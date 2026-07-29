@@ -49,9 +49,12 @@ upgrades on the spot.* `README.md` covers player-facing intent and behavior.
   (including ones flying our orders) self-exclude, so the fresh read is the whole
   cap. Never mark more work than bots can start; a stale count only delays marks
   until the next visit.
-- **Supply-centric early exit.** Most networks stock no upgrade-grade items: one
-  bare `get_contents()` call and the visit is over. Entity scanning only happens in
-  networks that actually hold candidate supply, one roboport cell at a time.
+- **No supply-based early exit.** Every network with bot headroom gets its cells
+  scanned, whatever its contents — networks without buildable stock are rare in
+  practice and act as natural pacing between the ones that matter. The supply
+  snapshot keeps every on-chain contents row unfiltered; rows for items that place
+  no entity are harmless because nothing ever looks them up. Deliberate (July
+  2026) — don't reintroduce a "skip networks without candidate supply" shortcut.
   Duplicate entities across overlapping cells are harmless — once marked, later
   encounters take the demand-accounting path.
 
@@ -66,6 +69,13 @@ upgrades on the spot.* `README.md` covers player-facing intent and behavior.
 - No per-entity-type enable settings and no hand-maintained type list: candidacy is
   derived from prototypes in `build_and_store_config` (has a placing item, not
   flagged `not-upgradable`) — belts and pipes included. Deliberate (July 2026).
+- No hidden-quality machinery (the old skip/sticky startup settings are gone):
+  hidden qualities come from other mods, and other-mod support waits until the core
+  is proven. Every tier on the normal chain is treated alike. Deliberate (July
+  2026).
+- Ghost provisioning is always on — no toggle. A ghost whose exact quality is
+  stocked is left to the bots (counted as demand); otherwise it is retargeted to
+  the best stocked tier, even a lower one. Deliberate (July 2026).
 - No PickerDollies/teleport-mod event integration: no positions are cached anywhere —
   every round scans entities fresh, so untracked teleports cannot go stale.
   Deliberate (July 2026) — don't resubscribe to dolly events.
@@ -94,3 +104,7 @@ folder.
   `get_contents()` only reports what bots can actually draw from.
 - Still unverified in-game: that construction bots pull upgrade items from network
   supply as expected. If orders stall despite stock, check this first.
+- Still unverified in-game (ghost provisioning): that `order_upgrade` on an
+  entity-ghost applies instantly (upgrade-planner-on-ghost behavior), preserves ghost
+  settings and `item_requests`, and supports quality downgrades. Verify, then move
+  these up into the verified list.

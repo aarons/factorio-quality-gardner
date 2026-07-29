@@ -12,6 +12,10 @@ entity itself (to_be_upgraded()); every visible mark — ours from a past round,
 a player's upgrade-planner mark, or another mod's — consumes supply as demand.
 No mark is ever cancelled: without a ledger we cannot tell ours from a
 player's, and cancelling a player's mark is off-limits.
+
+Ghosts are scanned too: one requesting a stocked quality just consumes supply
+as demand; one requesting an unstocked quality is retargeted to the best
+quality on hand — even a lower one — so it gets built at all.
 ]]
 
 local qualities = require("scripts.qualities")
@@ -38,25 +42,22 @@ end
 -- Network entry -------------------------------------------------------------
 
 -- One bare get_contents call for the entire network, folded into
--- supply[item_name][tier] = count. Rows are kept only when the item places an
--- entity and the quality is a permitted upgrade target; the per-item reserve
--- is subtracted as each (item, tier) entry is created.
+-- supply[item_name][tier] = count, with the per-item reserve subtracted as
+-- each (item, tier) entry is created. No filtering beyond the quality being
+-- on the chain: rows for items that place no entity are harmless — nothing
+-- ever looks them up.
 local function read_supply(network)
   local reserve = settings.global["reserve-per-item"].value
-  local item_places_entity = storage.config.item_places_entity
-  local supply = nil
+  local supply = {}
   for _, row in ipairs(network.get_contents()) do
-    if item_places_entity[row.name] then
-      local tier = qualities.tier_of(row.quality)
-      if tier and qualities.is_target_tier(tier) then
-        supply = supply or {}
-        local by_tier = supply[row.name]
-        if not by_tier then
-          by_tier = {}
-          supply[row.name] = by_tier
-        end
-        by_tier[tier] = (by_tier[tier] or -reserve) + row.count
+    local tier = qualities.tier_of(row.quality)
+    if tier then
+      local by_tier = supply[row.name]
+      if not by_tier then
+        by_tier = {}
+        supply[row.name] = by_tier
       end
+      by_tier[tier] = (by_tier[tier] or -reserve) + row.count
     end
   end
   return supply
@@ -72,7 +73,6 @@ local function enter_network(network, surface_index)
   if bots == 0 then return nil end
 
   local supply = read_supply(network)
-  if not supply then return nil end
 
   -- Construction areas are squares: one box per stationary cell, scanned one
   -- cell at a time to bound each find_entities_filtered burst.
@@ -107,16 +107,56 @@ end
 
 -- Matching -------------------------------------------------------------------
 
--- Highest tier above `tier` with stock remaining, or nil. Supply is
--- decremented in place, so the snapshot itself is the availability cache.
-local function best_target_tier(by_tier, tier)
+-- Highest tier with stock remaining, or nil. Supply is decremented in place,
+-- so the snapshot itself is the availability cache. Callers compare the
+-- result against the entity's own tier: built entities act only on a better
+-- tier; ghosts take whatever is best.
+local function best_stocked_tier(by_tier)
   local best = nil
-  for supply_tier, count in pairs(by_tier) do
-    if count > 0 and supply_tier > tier and (not best or supply_tier > best) then
-      best = supply_tier
+  for tier, count in pairs(by_tier) do
+    if count > 0 and (not best or tier > best) then
+      best = tier
     end
   end
   return best
+end
+
+-- Ghost provisioning: a ghost whose exact quality is stocked is left for the
+-- bots (its demand consumes supply); otherwise the ghost is retargeted via
+-- order_upgrade to the best stocked tier of its item — even a lower one, so
+-- the building gets built at all. The originally requested quality is not
+-- remembered: once built, the entity is an ordinary upgrade candidate that
+-- chases the best available supply.
+local function examine_ghost(net, entity)
+  local item_name = storage.config.placing_item_name[entity.ghost_name]
+  if not item_name then return end
+  local tier = qualities.tier_of(entity.quality.name)
+  if not tier then return end
+  local by_tier = net.supply[item_name]
+  if not by_tier then return end
+
+  local stock = by_tier[tier]
+  if stock and stock > 0 then
+    -- Exact quality stocked: a bot will fulfil this ghost natively; its
+    -- demand consumes the supply.
+    by_tier[tier] = stock - 1
+    return
+  end
+
+  -- The exact tier is out of stock, so the best stocked tier — above or
+  -- below the requested one — is never the requested tier itself.
+  local best = best_stocked_tier(by_tier)
+  if not best then return end
+
+  local ok = entity.order_upgrade{
+    target = {name = entity.ghost_name, quality = qualities.at(best).name},
+    force = entity.force,
+  }
+  if ok then
+    -- Without the retarget the ghost consumed no bot; now one will build it.
+    by_tier[best] = by_tier[best] - 1
+    net.bots = net.bots - 1
+  end
 end
 
 -- One iteration: examine one scanned entity, first-come-first-served in scan
@@ -124,9 +164,12 @@ end
 -- encounters take the demand-accounting path.
 local function examine(net, entity)
   if not entity.valid then return end
+  if entity.force.name ~= "player" then return end
+  if entity.name == "entity-ghost" then
+    return examine_ghost(net, entity)
+  end
   local item_name = storage.config.placing_item_name[entity.name]
   if not item_name then return end
-  if entity.force.name ~= "player" then return end
   local tier = qualities.tier_of(entity.quality.name)
   if not tier then return end
   if entity.to_be_deconstructed() then return end
@@ -144,11 +187,10 @@ local function examine(net, entity)
     return
   end
 
-  if not qualities.is_candidate_tier(tier) then return end
   local by_tier = net.supply[item_name]
   if not by_tier then return end
-  local target_tier = best_target_tier(by_tier, tier)
-  if not target_tier then return end
+  local target_tier = best_stocked_tier(by_tier)
+  if not target_tier or target_tier <= tier then return end
 
   local ok = entity.order_upgrade{
     target = {name = entity.name, quality = qualities.at(target_tier).name},

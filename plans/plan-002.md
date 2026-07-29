@@ -1,5 +1,12 @@
 # Ghost provisioning: retarget ghosts to the best available quality
 
+> **Amended after implementation (2026-07-28):** the `provision-ghosts` setting
+> described below was a mistake — the feature shipped always-on with no toggle.
+> In the same pass, hidden-quality support (skip/sticky) and the supply-centric
+> early exit were removed mod-wide, so the tier-policy subtleties below no
+> longer apply: supply keeps every on-chain contents row, and both built
+> entities and ghosts share one best-stocked-tier lookup.
+
 When a ghost requests a quality the network does not stock, retarget the ghost
 to the best quality the network does have — even a lower one — so the building
 gets built. "Better a slow factory than no factory."

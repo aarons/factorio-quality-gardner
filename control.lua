@@ -10,10 +10,9 @@ local gardener = require("scripts.gardener")
 
 -- Candidacy is derived from prototypes: an entity is covered when an item
 -- places it and the engine allows upgrading it. The type list narrows the
--- per-cell entity scans; item_places_entity keeps supply snapshots small.
+-- per-cell entity scans.
 local function build_and_store_config()
   local placing_item_name = {}
-  local item_places_entity = {}
   local is_tracked_type = {}
   local all_tracked_types = {}
   for name, prototype in pairs(prototypes.entity) do
@@ -21,7 +20,6 @@ local function build_and_store_config()
       local items = prototype.items_to_place_this
       if items and #items > 0 then
         placing_item_name[name] = items[1].name
-        item_places_entity[items[1].name] = true
         if not is_tracked_type[prototype.type] then
           is_tracked_type[prototype.type] = true
           all_tracked_types[#all_tracked_types + 1] = prototype.type
@@ -29,9 +27,11 @@ local function build_and_store_config()
       end
     end
   end
+  -- Ghosts are scanned alongside built entities so they can be counted as
+  -- demand and retargeted to the best stocked quality.
+  all_tracked_types[#all_tracked_types + 1] = "entity-ghost"
   storage.config = {
     placing_item_name = placing_item_name,
-    item_places_entity = item_places_entity,
     all_tracked_types = all_tracked_types,
   }
 end

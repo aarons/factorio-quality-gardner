@@ -1,4 +1,4 @@
--- Behavior tunables (runtime-global), then hidden-quality policy (startup).
+-- Behavior tunables (runtime-global).
 data:extend({
     {
         type = "int-setting",
@@ -26,20 +26,5 @@ data:extend({
         minimum_value = 0,
         maximum_value = 3600,
         order = "a-2"
-    },
-    -- Hidden quality handling (for mods like Quality++ Shiny)
-    {
-        type = "bool-setting",
-        name = "skip-hidden-qualities",
-        setting_type = "startup",
-        default_value = false,
-        order = "c-0"
-    },
-    {
-        type = "bool-setting",
-        name = "hidden-qualities-sticky",
-        setting_type = "startup",
-        default_value = true,
-        order = "c-1"
     }
 })
