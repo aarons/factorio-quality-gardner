@@ -1,42 +1,27 @@
 ---------------------------------------------------------------------------------------------------
-Version: 0.2.0
+Version: 1.0.0
 Date: 28. 07. 2026
   Features:
-    - Ghost provisioning: when a ghost requests a quality the network does not stock, the ghost is
-      retargeted to the best quality the network does have - even a lower one - so the building
-      gets built instead of waiting forever. Once built, it is an ordinary upgrade candidate and
-      is raised back up as better stock appears. Always on.
+    - Buildings are marked for upgrade when higher-quality versions of them sit in the logistic
+      network, and construction bots swap them out. Each building jumps straight to the best
+      quality on hand, and the displaced item returns to storage where it can lift an even worse
+      building - quality cascades through the base with no manual upgrade-planner passes.
+    - Ghost provisioning: a ghost requesting a quality the network does not stock is retargeted to
+      the best quality the network does have - even a lower one - so the building gets built
+      instead of waiting forever. Once built, it is an ordinary upgrade candidate and is raised
+      back up as better stock appears.
     - Module provisioning: installed modules with a higher-quality version in storage are swapped
       by the bots (the displaced module returns to storage), and module requests stuck on an
       out-of-stock quality are retargeted to the best quality on hand - even a lower one - so the
       slot gets filled at all. Quality-only: the mod never changes which module is installed or
-      requested, and installed modules are never downgraded. Always on.
-  Changes:
-    - Removed the hidden-quality startup settings (skip and sticky). Every quality reachable from
-      normal is treated alike; special handling for other mods' hidden qualities may return once
-      the core is proven.
-    - Rewrote the engine as a stateless scan: each logistic network is visited round-robin, its
-      contents are read fresh, and its roboport coverage is scanned for upgrade candidates. No
-      per-entity state is kept anywhere, so nothing can get out of sync with the world.
-    - Existing upgrade marks (the mod's, the player's, or another mod's) now count as demand
-      against network supply, so the same item is never promised twice.
-    - The mod no longer cancels any upgrade order: starved orders pend with the vanilla
-      missing-material alert until supply reappears or a player clears them. The order timeout
-      setting is gone.
-    - Upgrades now behave exactly like player-ordered native upgrades; the special restore of
-      accumulator charge, lamp always-on, and rocket silo auto-launch is gone.
-    - Settings reworked: "Entities per tick" is now "Entities per pass" (work per 10-tick slice),
-      and a new "Round delay" rest between rounds gives bots time to pick up ordered items.
----------------------------------------------------------------------------------------------------
-Version: 0.1.0
-Date: 17. 07. 2026
-  Features:
-    - Initial release. Buildings are marked for upgrade when higher-quality versions of them sit
-      in the logistic network's storage chests, and construction bots swap them out.
-    - Worst-quality buildings are upgraded first, straight to the best quality on hand.
-    - Orders that starve (supply taken by players, blueprints, or other demand) are automatically
-      cancelled after a configurable timeout, keeping alerts clean.
-    - Processing is spread evenly across ticks (configurable work per tick) instead of burst
-      scans, and each network only receives as many orders as it has construction robots
-      available.
-    - Supply reserve and order timeout settings.
+      requested, and installed modules are never downgraded.
+    - Everything placeable and upgradable is covered, modded buildings included - coverage is
+      derived from prototypes, with no per-type toggles. Quality chains are walked via the
+      prototype graph, so any quality mod works.
+    - Stateless by design: every round reads the world fresh, so nothing can get out of sync.
+      Existing upgrade marks (yours, the mod's, or another mod's) count as demand, so the same
+      item is never promised twice, and no mark is ever cancelled. Upgrades behave exactly like
+      player-ordered native upgrades.
+    - Smooth, constant cost: networks are visited round-robin in small slices, orders are capped
+      by available construction robots, and a rest between rounds gives bots time to pick up
+      ordered items. Settings: work per slice, a per-item supply reserve, and the round delay.

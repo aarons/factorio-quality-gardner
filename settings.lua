@@ -4,7 +4,7 @@ data:extend({
         type = "int-setting",
         name = "entities-per-pass",
         setting_type = "runtime-global",
-        default_value = 50,
+        default_value = 10,
         minimum_value = 1,
         maximum_value = 10000,
         order = "a-0"

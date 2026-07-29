@@ -10,10 +10,8 @@ Drop spare higher-quality building items into the logistic network (from quality
 recycling, asteroid reprocessing, or dedicated quality production) and let the bots
 work. No manual upgrade-planner passes needed.
 
-- **Worst first.** The lowest-quality buildings are upgraded before better ones, so
-  each item delivers the biggest improvement.
-- **Direct to best.** A normal building jumps straight to the best quality on
-  hand — one bot trip, no intermediate items.
+- **Direct to best.** Any building below the best quality on hand jumps straight
+  to it — one bot trip, no intermediate items.
 - **The cascade is free.** Upgrading a building returns its lower-quality item to
   storage, which can then lift an even worse building, and the upgraded building is
   itself a candidate for the next tier. Quality ripples through the base with no
@@ -60,7 +58,7 @@ per-type toggles.
 
 | Setting | Default | Notes |
 |---|---|---|
-| Entities per pass | 50 | Work budget per processing slice; lower for weaker machines, raise for faster processing |
+| Entities per pass | 10 | Work budget per processing slice; raise for faster processing at the expense of UPS |
 | Reserve per item | 0 | Spares kept untouched per item-quality |
 | Round delay | 20 s | Rest between rounds so bots can pick up ordered items |
 

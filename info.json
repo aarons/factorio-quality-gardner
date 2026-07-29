@@ -1,15 +1,14 @@
 {
   "name": "quality-gardener",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "title": "Quality Gardener",
   "author": "raley",
   "homepage": "https://github.com/aarons/factorio-quality-gardener",
-  "description": "When higher-quality versions of your buildings sit in logistic storage, construction bots steadily swap them in - like a gardener replacing the worst plants with the best cuttings on hand.",
+  "description": "Let bots manage your garden **ahem** factory. When higher-quality buildings are in logistic storage, bots will swap them in. If a ghost can't be fulfilled at the requested quality, a lower one quality building will be sent in it's place.",
   "factorio_version": "2.1",
   "dependencies": [
     "base",
-    "quality",
-    "? even-pickier-dollies"
+    "quality"
   ],
   "quality_required": true,
   "rail_bridges_required": false,
