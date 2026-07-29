@@ -7,11 +7,17 @@ needed from the live reference in that single tick (bot headroom, contents,
 construction cell boxes), then the covered entities are scanned one cell at a
 time and matched against the plain-data snapshot.
 
-Nothing per-entity is stored. Marked entities are recognized by asking the
-entity itself (to_be_upgraded()); every visible mark — ours from a past round,
-a player's upgrade-planner mark, or another mod's — consumes supply as demand.
-No mark is ever cancelled: without a ledger we cannot tell ours from a
-player's, and cancelling a player's mark is off-limits.
+Marked entities are recognized by asking the entity itself (to_be_upgraded());
+every visible mark — ours from a past round, a player's upgrade-planner mark,
+or another mod's — consumes supply as demand. The one piece of per-entity
+state is the order ledger, recording the two facts the world cannot answer:
+that a mark is ours, and when we placed it. A ledgered mark that has outlived
+the order-expiry setting with its target quality out of stock is starved —
+biter damage forced rebuilds, or player upgrades drained the stock it counted
+on — and is cancelled so the entity becomes an ordinary candidate again. A
+ledger miss means hands off: player marks are never touched, and a lost
+ledger just means existing orders never expire. Orphaned entries are pruned
+by a budgeted sweep between rounds.
 
 Ghosts are scanned too: one requesting a stocked quality just consumes supply
 as demand; one requesting an unstocked quality is retargeted to the best
@@ -30,14 +36,16 @@ local qualities = require("scripts.qualities")
 
 local gardener = {}
 
--- How often the pass runs; each invocation spends up to entities-per-pass
--- iterations.
-gardener.PASS_INTERVAL_TICKS = 10
+-- The pass runs every tick; each invocation spends up to entities-per-tick
+-- budget steps.
+gardener.PASS_INTERVAL_TICKS = 1
 
 function gardener.initialize_storage()
-  -- The resumable cursor is the only cross-tick state; abandoning it is
-  -- always safe (the next pass re-derives everything from the world).
+  -- Abandoning the pass state is always safe (the next pass re-derives
+  -- everything from the world). Resetting the order ledger is safe too:
+  -- orphaned marks simply never expire.
   storage.pass = {cursor = 1}
+  storage.order_ledger = {}
   -- Storage keys from the event-tracking architecture; nil them out so old
   -- saves migrate cleanly.
   storage.candidates = nil
@@ -188,6 +196,11 @@ local function examine_building(network_snapshot, entity)
   if ok then
     by_tier[target_tier] = by_tier[target_tier] - 1
     network_snapshot.bot_headroom = network_snapshot.bot_headroom - 1
+    storage.order_ledger[entity.unit_number] = {
+      entity = entity,
+      order_tick = game.tick,
+      target_quality = qualities.at(target_tier).name,
+    }
   end
   return ok
 end
@@ -319,13 +332,37 @@ local function examine(network_snapshot, entity)
   if entity.to_be_deconstructed() then return end
 
   if entity.to_be_upgraded() then
-    -- Demand accounting: an existing mark consumes supply at its target.
     -- Marked entities get no module orders — the swap would orphan them.
     local target_prototype, target_quality = entity.get_upgrade_target()
     local target_item = target_prototype
       and storage.config.placing_item_name[target_prototype.name]
     local by_tier = target_item and network_snapshot.supply[target_item]
     local target_tier = target_quality and qualities.tier_of(target_quality.name)
+
+    local entry = storage.order_ledger[entity.unit_number]
+    if entry then
+      if target_prototype and target_prototype.name == entity.name
+        and target_quality and target_quality.name == entry.target_quality then
+        -- Still the mark we placed. Expired with the target out of stock
+        -- means starved; a queued-but-stocked order is the bots' business.
+        local expiry_ticks = settings.global["order-expiry-seconds"].value * 60
+        local stock = by_tier and target_tier and by_tier[target_tier]
+        if expiry_ticks > 0
+          and game.tick - entry.order_tick >= expiry_ticks
+          and not (stock and stock > 0)
+          and entity.cancel_upgrade(entity.force) then
+          storage.order_ledger[entity.unit_number] = nil
+          -- No mark left, no demand; an ordinary candidate again next round.
+          return
+        end
+      else
+        -- Re-marked to a different target since we ordered: whoever did
+        -- that owns the mark now.
+        storage.order_ledger[entity.unit_number] = nil
+      end
+    end
+
+    -- Demand accounting: an existing mark consumes supply at its target.
     if by_tier and target_tier then
       by_tier[target_tier] = (by_tier[target_tier] or 0) - 1
     end
@@ -368,33 +405,72 @@ local function scan_cell(network_snapshot)
   }
 end
 
+-- One budgeted step of the ledger sweep that runs between rounds: check one
+-- entry, pruning it when its entity is gone (destroyed, or replaced by the
+-- completed upgrade) or no longer marked (the player cancelled). Housekeeping
+-- only, not correctness — a stale entry can at worst match a mark identical
+-- to one we would place — so a save/load reordering the hash walk mid-sweep
+-- is harmless. Entries are deleted only here and at examine time, never while
+-- the sweep cursor points at them, so resuming next() from the stored key is
+-- safe.
+local function sweep_ledger_step(pass)
+  local ledger = storage.order_ledger
+  local key = pass.sweep_cursor
+  local entry
+  if key == nil then
+    key, entry = next(ledger)
+  else
+    entry = ledger[key]
+  end
+  if not entry then
+    -- Ledger exhausted (or the cursor's entry vanished across a reload —
+    -- the next round's sweep starts fresh either way).
+    pass.sweeping = nil
+    pass.sweep_cursor = nil
+    return
+  end
+  pass.sweep_cursor = (next(ledger, key))
+  if not (entry.entity.valid and entry.entity.to_be_upgraded()) then
+    ledger[key] = nil
+  end
+  if pass.sweep_cursor == nil then
+    pass.sweeping = nil
+  end
+end
+
 function gardener.on_pass()
   local pass = storage.pass
-  if pass.resume_tick then
-    if game.tick < pass.resume_tick then return end
-    pass.resume_tick = nil
-  end
-
-  local budget = settings.global["entities-per-pass"].value
+  local budget = settings.global["entities-per-tick"].value
   local scanned_cell_this_invocation = false
 
   while budget > 0 do
     local network_snapshot = pass.network_snapshot
-    if not network_snapshot then
+    if pass.sweeping then
+      -- Between rounds: sweep the ledger during the rest window.
+      budget = budget - 1
+      sweep_ledger_step(pass)
+    elseif pass.resume_tick then
+      if game.tick < pass.resume_tick then return end
+      pass.resume_tick = nil
+    elseif not network_snapshot then
       -- One iteration: advance the cursor and enter the next network
       budget = budget - 1
       local slots = collect_network_slots()
       if pass.cursor > #slots then
         -- Round complete: rest, giving bots time to collect ordered items so
-        -- the next round's contents reads are close to accurate.
+        -- the next round's contents reads are close to accurate. The ledger
+        -- sweep overlaps the rest, delaying the next round only when the
+        -- ledger outlasts the delay.
         pass.cursor = 1
         pass.resume_tick = game.tick
           + math.floor(settings.global["round-delay-seconds"].value * 60)
-        return
+        pass.sweeping = true
+        pass.sweep_cursor = nil
+      else
+        local slot = slots[pass.cursor]
+        pass.cursor = pass.cursor + 1
+        pass.network_snapshot = enter_network(slot.network, slot.surface_index)
       end
-      local slot = slots[pass.cursor]
-      pass.cursor = pass.cursor + 1
-      pass.network_snapshot = enter_network(slot.network, slot.surface_index)
     elseif network_snapshot.entities and network_snapshot.entity_index <= #network_snapshot.entities then
       budget = budget - 1
       local entity = network_snapshot.entities[network_snapshot.entity_index]

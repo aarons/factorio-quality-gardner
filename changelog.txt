@@ -1,4 +1,20 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.0
+Date: 29. 07. 2026
+  Features:
+    - Starved upgrade orders now self-heal. The mod remembers which upgrade marks it placed - and
+      only ever cancels those; your own marks are never touched - and cancels one that has waited
+      longer than the new Order Expiry setting (default 300 s) with its item out of stock, for
+      example after biter damage or your own upgrade passes consumed the stock the order was
+      counting on. The building becomes an ordinary candidate again on the next round. Orders whose
+      item is in stock but queued behind busy bots are left alone. Set the expiry to 0 to keep the
+      old never-cancel behavior.
+  Changes:
+    - The pass now runs every tick in correspondingly smaller slices; the Entities per Pass setting
+      is renamed Entities per Tick (default 1 - the same average throughput as before, delivered
+      perfectly smoothly). The order ledger is swept during the rest between rounds under the same
+      work budget, so nothing ever bursts.
+---------------------------------------------------------------------------------------------------
 Version: 1.0.0
 Date: 28. 07. 2026
   Features:

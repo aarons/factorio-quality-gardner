@@ -2,11 +2,11 @@
 data:extend({
     {
         type = "int-setting",
-        name = "entities-per-pass",
+        name = "entities-per-tick",
         setting_type = "runtime-global",
-        default_value = 10,
+        default_value = 1,
         minimum_value = 1,
-        maximum_value = 10000,
+        maximum_value = 1000,
         order = "a-0"
     },
     {
@@ -26,5 +26,14 @@ data:extend({
         minimum_value = 0,
         maximum_value = 3600,
         order = "a-2"
+    },
+    {
+        type = "int-setting",
+        name = "order-expiry-seconds",
+        setting_type = "runtime-global",
+        default_value = 300,
+        minimum_value = 0,
+        maximum_value = 86400,
+        order = "a-3"
     }
 })

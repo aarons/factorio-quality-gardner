@@ -42,9 +42,14 @@ per-type toggles.
 
 - **Just like your own upgrade marks.** The mod's upgrades are ordinary native
   upgrade orders — bots transfer inventory, modules, and fuel exactly as they would
-  for an upgrade-planner pass. The mod never cancels any mark, its own included: an
-  order whose supply was taken pends with the usual missing-material alert until a
-  player clears it or supply reappears.
+  for an upgrade-planner pass. Your marks are never touched: the mod only ever
+  cancels orders it placed itself.
+- **Starved orders self-heal.** An order whose supply was taken out from under it —
+  biters forced a rebuild, or your own upgrades used the stock — is cancelled once
+  it has waited out the order-expiry setting with the item still out of stock, and
+  the building becomes an ordinary candidate again. An order whose item is in stock
+  but queued behind busy bots is left alone. Set the expiry to 0 to let starved
+  orders pend (with the usual missing-material alert) until supply reappears.
 - **Existing marks count as demand.** Anything already marked for upgrade — by you,
   the mod, or another mod — consumes the matching supply, so the same item is never
   promised twice.
@@ -58,18 +63,22 @@ per-type toggles.
 
 | Setting | Default | Notes |
 |---|---|---|
-| Entities per pass | 10 | Work budget per processing slice; raise for faster processing at the expense of UPS |
+| Entities per tick | 1 | Work budget per tick; raise for faster processing at the expense of UPS |
 | Reserve per item | 0 | Spares kept untouched per item-quality |
 | Round delay | 20 s | Rest between rounds so bots can pick up ordered items |
+| Order expiry | 300 s | Cancel the mod's own starved orders after this long out of stock; 0 = never |
 
 ## Compatibility
 
 Works with any quality mod — quality chains are walked via the prototype graph, never
 hardcoded.
 
-The mod keeps no state about your base — every round reads the world fresh, so
-there is nothing to get out of sync. `/quality-gardener-init` resets the pass cursor
-if you ever want a clean restart.
+The mod keeps almost no state about your base — every round reads the world fresh,
+so there is nothing to get out of sync. The one exception is a small ledger of the
+upgrade orders the mod itself placed, kept so that only its own marks are ever
+expired; losing it is harmless (those orders simply never expire).
+`/quality-gardener-init` resets the pass cursor and the ledger if you ever want a
+clean restart.
 
 One consequence of statelessness: if you cancel a mark the mod made while the
 higher-quality item is still in storage, the mod will re-mark it on a later round.

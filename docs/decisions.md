@@ -20,7 +20,11 @@ rescans, expiry timeouts, position refresh). The scan pass reads truth directly,
 so that machinery — and its bug surface — disappears. The reference mod and this
 repo's git history both contain the old shape; do not reintroduce it.
 
-## 2026-07 — No mark cancellation, and its accepted consequences
+## 2026-07 — No mark cancellation, and its accepted consequences (superseded)
+
+*Superseded 2026-07-29 by the order-ledger entry below: expiry-based
+cancellation of our own marks was added for 1.1.0. The no-cancel-cooldown and
+no-runtime-state-restore consequences still stand.*
 
 Without a ledger we cannot distinguish our marks from a player's, and cancelling
 a player's mark is off-limits — so no mark is ever cancelled. Consequences,
@@ -32,6 +36,53 @@ accepted deliberately; do not "fix" them:
   round while supply persists.
 - **No runtime-state restore.** Our upgrades behave exactly like player-ordered
   native upgrades.
+
+## 2026-07-29 — Order ledger reintroduced for expiry (supersedes no-cancellation)
+
+Starved marks turned out to matter in practice: a snapshot-based order can lose
+its supply moments after it is placed (biter damage dispatching rebuild bots,
+player upgrade passes draining stock), and a starved mark then squats on the
+demand accounting and the player's alert list until supply happens to return.
+The fix is a minimal order ledger — `storage.order_ledger`, `unit_number →
+{entity, order_tick, target_quality}` — recording only the two facts the world
+cannot answer: that a mark is ours, and when we placed it.
+
+This is not the retired per-entity state coming back. That ledger cached world
+facts (positions, candidacy) that could go stale and needed repair machinery;
+this one's facts never go stale, and losing it degrades gracefully — orphaned
+marks simply never expire, which is exactly the old accepted behavior. Player
+marks remain untouchable (a ledger miss means hands off), and an entity
+re-marked to a different target than we ordered is dropped from the ledger on
+sight.
+
+Cancellation requires expired **and** target-out-of-stock, never expiry alone:
+a stocked-but-queued order is the bots' business, and cancelling it would just
+churn (re-ordered next round). Orders whose item a bot is already carrying are
+invisible to the supply snapshot; the generous default expiry (300 s) keeps
+mid-flight cancels rare, and each one self-corrects — the bot returns the item,
+the next round re-orders, the clock resets. After a genuine starvation cancel
+there is no re-order loop: no supply means the entity is not a candidate.
+
+Orphaned entries (entity destroyed, or replaced by the completed upgrade — a
+new unit number either way) are pruned by a budgeted sweep between rounds: a
+`next()`-cursor walk of the ledger in `storage`, one entry per budget step,
+overlapping the round-delay rest window. No destruction events — the sweep is
+housekeeping, not correctness (a stale entry can at worst match a mark
+identical to one we would place ourselves), so eventual pruning suffices and a
+mid-sweep save/load reordering the hash walk is harmless. Marks in networks
+that lost bot coverage are never encountered; they sit inert and expire on the
+first visit after coverage returns.
+
+## 2026-07-29 — Pass runs every tick, with uniform budget steps
+
+`on_nth_tick(10)` with a 10× budget delivered the same average throughput in
+bursts; the pass now runs every tick with `entities-per-tick` (default 1) —
+the smallest chunks and the most consistent cost. Budget steps are uniform:
+one network entry, one entity examine, one cell scan, or one ledger check each
+cost one step. No weighted costs — there are no profiling numbers to ground a
+weight in, the budget setting already scales all phases together, and the
+ledger sweep is bounded above by the scan phase anyway (every ledgered entity
+is also examined every round, alongside all the unmarked ones).
 
 ## 2026-07 — No supply-based early exit in the scan
 

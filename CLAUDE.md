@@ -4,23 +4,31 @@ Factorio 2.1 mod: when higher-quality versions of placed buildings sit in a logi
 network, lower-quality placed buildings in that network are marked for upgrade so
 construction bots swap them out.
 
-The architecture in one line: *no entity events and no per-entity state — a
-round-robin, budgeted scan pass reads each logistic network fresh and orders
-upgrades on the spot.* `README.md` covers player-facing intent and behavior.
+The architecture in one line: *no entity events and, except for the order
+ledger, no per-entity state — a round-robin, budgeted scan pass reads each
+logistic network fresh and orders upgrades on the spot.* `README.md` covers
+player-facing intent and behavior.
 
 ## Design invariants (read before changing core behavior)
 
-- **The world is the only source of truth.** Nothing per-entity is stored. Each
-  network visit reads reality fresh (contents, roboport cells, the entities inside
-  them) and issues orders directly; marked entities are recognized by asking the
-  entity itself (`to_be_upgraded()`).
+- **The world is the only source of truth.** Nothing per-entity is stored except
+  the order ledger, which records only the two facts the world cannot answer:
+  that a mark is ours, and when we placed it — facts that can never go stale.
+  Each network visit reads reality fresh (contents, roboport cells, the entities
+  inside them) and issues orders directly; marked entities are recognized by
+  asking the entity itself (`to_be_upgraded()`).
 - **Every visible mark is demand.** A marked entity — ours from a past round, a
   player's upgrade-planner mark, or another mod's — decrements the supply snapshot
   at its upgrade target and is otherwise skipped.
-- **No mark is ever cancelled.** We cannot distinguish our marks from a player's,
-  and cancelling a player's mark is off-limits. Accepted consequences — no order
-  expiry, no cancel cooldown, no runtime-state restore — are deliberate; see the
-  decision log before "fixing" any of them.
+- **Only ledgered marks are ever cancelled.** The order ledger
+  (`storage.order_ledger`, keyed by unit number) is the sole way to tell our
+  marks from a player's; a ledger miss means hands off, so player marks stay
+  untouchable. A ledgered mark is cancelled only when it has outlived
+  `order-expiry-seconds` *and* its target quality is out of stock — a
+  queued-but-stocked order is the bots' business, and an entity re-marked to a
+  different target is dropped from the ledger on sight. Losing the ledger is
+  safe: orphaned marks simply never expire. Still accepted, deliberately: no
+  cancel cooldown and no runtime-state restore; see the decision log.
 - **Network identity is transient; only snapshots span ticks.** `LuaLogisticNetwork`
   refs and ids invalidate on any merge/split — never store one across a tick
   boundary. Entering a network reads everything needed (bot count, supply,
@@ -32,11 +40,15 @@ upgrades on the spot.* `README.md` covers player-facing intent and behavior.
   data in `storage.pass`. Init and configuration changes reset it; a restarted pass
   just re-derives from the world. `LuaEntity` references may sit in the work state
   across ticks (they are storable); check `.valid` before each use.
-- **Work is spread, never burst.** The pass runs on `on_nth_tick(10)` and spends up
-  to `entities-per-pass` iterations per invocation, with at most one per-cell entity
-  scan burst per invocation. After a full round of the networks it rests for
-  `round-delay-seconds` (the pickup window: bots collect ordered items so the next
-  round's contents reads are close to accurate).
+- **Work is spread, never burst.** The pass runs every tick and spends up to
+  `entities-per-tick` budget steps per invocation — entering a network, examining
+  one entity, scanning one cell, or checking one ledger entry each cost one step
+  (uniform, deliberately unweighted) — with at most one per-cell entity scan
+  burst per invocation. After a full round of the networks it rests for
+  `round-delay-seconds` (the pickup window: bots collect ordered items so the
+  next round's contents reads are close to accurate); the ledger sweep runs
+  during the rest under the same budget, delaying the next round only when the
+  ledger outlasts the delay.
 - **Orders are capped by bot headroom.** Each network gets at most
   `available_construction_robots` orders per visit, read fresh at entry — busy bots
   (including ones flying our orders) self-exclude, so the fresh read is the whole
@@ -44,8 +56,10 @@ upgrades on the spot.* `README.md` covers player-facing intent and behavior.
 
 ## Retired alternatives (don't reintroduce — rationale in `docs/decisions.md`)
 
-- Per-entity state: the candidate index and order ledger (still present in git
-  history and the reference mod; deliberately removed).
+- Per-entity state as a cache of the world: the candidate index and the old order
+  ledger with cached positions, expiry machinery, and refresh slices (still in git
+  history and the reference mod). The current `storage.order_ledger` is not this —
+  it stores only mark ownership and the order tick, facts the world cannot answer.
 - Exclusion machinery: mod lists, surface filters, Factorissimo integration.
 - Per-entity-type enable settings or a hand-maintained type list (candidacy is
   derived from prototypes in `build_and_store_config`).
@@ -79,6 +93,8 @@ into the local Factorio mods folder.
   is a **string** prototype name.
 - `order_upgrade{target={name=..., quality=...}, force=...}` supports same-name
   quality-only upgrades; `get_upgrade_target()` returns (prototype, quality).
+- `LuaEntity.cancel_upgrade(force, player?)` returns a boolean — true when a
+  pending upgrade was cancelled.
 - `LuaLogisticNetwork.available_construction_robots` — read-only uint32, "number of
   construction robots available for a job" (idle bots; busy ones self-exclude).
 - `"not-upgradable"` is an `EntityPrototypeFlag` ("can't be selected by the upgrade
@@ -118,6 +134,10 @@ into the local Factorio mods folder.
   targeting the same slot resolve pickup-before-delivery (vanilla's
   upgrade-planner-on-modules does exactly this, but it's undocumented). Verify,
   then move these up.
+- Still unverified in-game (order expiry): that `cancel_upgrade` on an order
+  whose item a bot is already carrying recalls the bot and returns the item to
+  storage cleanly (rare with the 300 s default expiry, and self-correcting
+  either way — the next round re-orders). Verify, then move this up.
 
 ## Localization
 
