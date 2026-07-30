@@ -85,6 +85,11 @@ player-facing intent and behavior.
 `./validate.sh` runs luacheck. `./package.sh` validates, zips, and copies the mod
 into the local Factorio mods folder.
 
+This branch is the Factorio **2.1** release line; branch `2.0` is the parallel 2.0
+line. A mod declares exactly one major version, so every behavior change ships as
+two portal releases with distinct version numbers — weigh changes here against the
+2.0 branch, and note its `package.sh` builds to `builds/` without installing.
+
 ## Verified API facts (don't re-derive)
 
 - `LuaLogisticNetwork.get_contents(member?)` — `member` is optional (`"storage"` or
@@ -107,9 +112,15 @@ into the local Factorio mods folder.
   `LuaEntity.insert_plan` and `.removal_plan` are **read-write**
   `array[BlueprintInsertPlan]` — retargeting an existing proxy is a plain
   assignment. A plan is `{id = {name, quality}, items = {in_inventory =
-  {{inventory, stack, count?}}}}` where `name`/`quality` are plain **strings**
-  (not prototypes), `inventory` is a `defines.inventory` value, and `stack` is
-  **0-based** (LuaInventory slots are 1-based).
+  {{inventory, stack, count?}}}}` where `inventory` is a `defines.inventory` value
+  and `stack` is **0-based** (LuaInventory slots are 1-based).
+  What `id.name`/`id.quality` give back on **read** is the one thing the two API
+  generations disagree about: 2.1 types them as plain **strings**
+  (`BlueprintItemIDAndQualityIDPair`), 2.0 as `ItemID`/`QualityID` ("returns
+  `LuaItemPrototype` when read"), and the 2.1 changelog records no behavior change
+  — so one doc describes the other's runtime and neither is verified in-game.
+  `name_of` in `gardener.lua` reads through `.name` so both work; writing a name
+  string back is accepted either way. Don't "simplify" it away.
 - `entity.item_request_proxy` (read-only) returns the first proxy targeting the
   entity; multiple proxies per entity are possible but there is no plural accessor.
   `proxy.proxy_target` is the reverse link.
