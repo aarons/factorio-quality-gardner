@@ -30,6 +30,19 @@ is stocked is left to the bots (counted as demand); one whose quality is out
 of stock is retargeted to the best stocked tier of the same module — even a
 lower one, because a downgrade beats an empty slot. Module changes are
 quality-only: which module prototype sits in a slot is never changed.
+
+Upgrade requests get the ghost treatment too: a non-ledgered mark — a
+player's, or another mod's — whose target quality is stocked is the bots'
+business, but one that is starved is retargeted to the best stocked tier of
+its target item, even a lower one, so the swap happens at all. Quality only:
+the chosen target prototype is sacred, and the mark is never ledgered — it
+stays the player's, so it can never be cancelled by expiry.
+
+Each behavior — factory upgrades (buildings and their modules), ghost
+provisioning, upgrade-request provisioning — sits behind a manage-* toggle
+read at network entry. A toggle gates only the acting arm of its behavior;
+demand accounting always runs, so the enabled behaviors never over-order
+against stock a disabled one's marks or ghosts will consume.
 ]]
 
 local qualities = require("scripts.qualities")
@@ -85,6 +98,15 @@ end
 local function enter_network(network, surface_index)
   if not network.valid then return nil end
 
+  -- The behavior toggles are snapshotted here like everything else: a
+  -- mid-visit settings change applies from the next network entry.
+  local manage_factory = settings.global["manage-factory"].value
+  local manage_ghosts = settings.global["manage-ghosts"].value
+  local manage_upgrade_requests = settings.global["manage-upgrade-requests"].value
+  if not (manage_factory or manage_ghosts or manage_upgrade_requests) then
+    return nil
+  end
+
   local bot_headroom = network.available_construction_robots
   if bot_headroom == 0 then return nil end
 
@@ -118,6 +140,9 @@ local function enter_network(network, surface_index)
     cell_index = 0,
     entities = nil,
     entity_index = 1,
+    manage_factory = manage_factory,
+    manage_ghosts = manage_ghosts,
+    manage_upgrade_requests = manage_upgrade_requests,
   }
 end
 
@@ -159,6 +184,10 @@ local function examine_ghost(network_snapshot, entity)
     return
   end
 
+  -- Only the acting arm is toggled: a stocked ghost consumed supply above
+  -- whether or not retargeting is allowed.
+  if not network_snapshot.manage_ghosts then return end
+
   -- The exact tier is out of stock, so the best stocked tier — above or
   -- below the requested one — is never the requested tier itself.
   local best = best_stocked_tier(by_tier)
@@ -179,6 +208,7 @@ end
 -- stocked. Returns true when an order was issued (module work then waits for
 -- a later round — an upgrade swap would orphan any proxy work).
 local function examine_building(network_snapshot, entity)
+  if not network_snapshot.manage_factory then return false end
   local item_name = storage.config.placing_item_name[entity.name]
   if not item_name then return false end
   local tier = qualities.tier_of(entity.quality.name)
@@ -255,7 +285,8 @@ local function examine_proxy(network_snapshot, proxy)
       if stock and stock > 0 then
         -- Stocked: bots will fill this; its demand consumes the supply.
         by_tier[tier] = stock - count
-      elseif count > 0 and count <= network_snapshot.bot_headroom
+      elseif network_snapshot.manage_factory
+        and count > 0 and count <= network_snapshot.bot_headroom
         and storage.config.module_item[item_name] then
         local best = best_stocked_tier(by_tier)
         if best then
@@ -289,6 +320,8 @@ local function examine_modules(network_snapshot, entity)
     -- requests are examined. Installed-module swaps wait for a later round.
     return examine_proxy(network_snapshot, proxy)
   end
+
+  if not network_snapshot.manage_factory then return end
 
   local inventory_index = module_inventory.index
   if not inventory_index then return end
@@ -334,6 +367,69 @@ local function examine_modules(network_snapshot, entity)
   end
 end
 
+-- A marked entity. Ledgered marks are ours: an expired one whose target is
+-- out of stock is cancelled (starved). Non-ledgered marks are a player's or
+-- another mod's: upgrade-request provisioning retargets a starved one to the
+-- best stocked tier of its target item — even a lower one, so the swap
+-- happens at all. Quality only: the chosen target prototype is sacred. The
+-- mark stays unledgered — still the player's, never expired — and the
+-- original quality is not remembered: once swapped, the entity chases the
+-- best supply like any other. Whatever survives counts as demand.
+local function examine_marked(network_snapshot, entity)
+  local target_prototype, target_quality = entity.get_upgrade_target()
+  local target_item = target_prototype
+    and storage.config.placing_item_name[target_prototype.name]
+  local by_tier = target_item and network_snapshot.supply[target_item]
+  local target_tier = target_quality and qualities.tier_of(target_quality.name)
+  local stock = by_tier and target_tier and by_tier[target_tier]
+  local starved = not (stock and stock > 0)
+
+  local entry = storage.order_ledger[entity.unit_number]
+  if entry then
+    if target_prototype and target_prototype.name == entity.name
+      and target_quality and target_quality.name == entry.target_quality then
+      -- Still the mark we placed. Expired with the target out of stock
+      -- means starved; a queued-but-stocked order is the bots' business.
+      local expiry_ticks = settings.global["order-expiry-seconds"].value * 60
+      if expiry_ticks > 0
+        and game.tick - entry.order_tick >= expiry_ticks
+        and starved
+        and entity.cancel_upgrade(entity.force) then
+        storage.order_ledger[entity.unit_number] = nil
+        -- No mark left, no demand; an ordinary candidate again next round.
+        return
+      end
+    else
+      -- Re-marked to a different target since we ordered: whoever did
+      -- that owns the mark now.
+      storage.order_ledger[entity.unit_number] = nil
+      entry = nil
+    end
+  end
+
+  if network_snapshot.manage_upgrade_requests
+    and not entry and starved
+    and target_prototype and by_tier and target_tier then
+    local best = best_stocked_tier(by_tier)
+    if best then
+      local ok = entity.order_upgrade{
+        target = {name = target_prototype.name, quality = qualities.at(best).name},
+        force = entity.force,
+      }
+      if ok then
+        by_tier[best] = by_tier[best] - 1
+        network_snapshot.bot_headroom = network_snapshot.bot_headroom - 1
+        return
+      end
+    end
+  end
+
+  -- Demand accounting: an existing mark consumes supply at its target.
+  if by_tier and target_tier then
+    by_tier[target_tier] = (by_tier[target_tier] or 0) - 1
+  end
+end
+
 -- One iteration: examine one scanned entity, first-come-first-served in scan
 -- order. Duplicates from overlapping cells are harmless — once marked, later
 -- encounters take the demand-accounting path.
@@ -347,40 +443,7 @@ local function examine(network_snapshot, entity)
 
   if entity.to_be_upgraded() then
     -- Marked entities get no module orders — the swap would orphan them.
-    local target_prototype, target_quality = entity.get_upgrade_target()
-    local target_item = target_prototype
-      and storage.config.placing_item_name[target_prototype.name]
-    local by_tier = target_item and network_snapshot.supply[target_item]
-    local target_tier = target_quality and qualities.tier_of(target_quality.name)
-
-    local entry = storage.order_ledger[entity.unit_number]
-    if entry then
-      if target_prototype and target_prototype.name == entity.name
-        and target_quality and target_quality.name == entry.target_quality then
-        -- Still the mark we placed. Expired with the target out of stock
-        -- means starved; a queued-but-stocked order is the bots' business.
-        local expiry_ticks = settings.global["order-expiry-seconds"].value * 60
-        local stock = by_tier and target_tier and by_tier[target_tier]
-        if expiry_ticks > 0
-          and game.tick - entry.order_tick >= expiry_ticks
-          and not (stock and stock > 0)
-          and entity.cancel_upgrade(entity.force) then
-          storage.order_ledger[entity.unit_number] = nil
-          -- No mark left, no demand; an ordinary candidate again next round.
-          return
-        end
-      else
-        -- Re-marked to a different target since we ordered: whoever did
-        -- that owns the mark now.
-        storage.order_ledger[entity.unit_number] = nil
-      end
-    end
-
-    -- Demand accounting: an existing mark consumes supply at its target.
-    if by_tier and target_tier then
-      by_tier[target_tier] = (by_tier[target_tier] or 0) - 1
-    end
-    return
+    return examine_marked(network_snapshot, entity)
   end
 
   if examine_building(network_snapshot, entity) then return end

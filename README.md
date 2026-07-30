@@ -25,6 +25,14 @@ work. No manual upgrade-planner passes needed.
   than no factory — and it self-heals: the downgraded building is an ordinary
   upgrade candidate, raised back up tier by tier as better stock appears.
 
+- **Your upgrade orders get unstuck too.** An upgrade-planner order whose target
+  quality is out of stock — including cross-type upgrades like burner inserter →
+  fast inserter — would stall forever. Quality Gardener retargets it to the best
+  stocked quality of the target item, even a lower one, so the swap happens.
+  Only the quality is adjusted, never which building you asked for, and your
+  orders are still never cancelled. Once swapped, the building is an ordinary
+  candidate, raised back up as better stock appears.
+
 - **Modules are gardened too.** An installed module with a higher-quality version in
   storage gets swapped by the bots, the displaced module returning to storage — the
   same cascade as buildings. And a module request no bot can fill (the requested
@@ -36,14 +44,18 @@ work. No manual upgrade-planner passes needed.
 Everything placeable and upgradable is covered — assemblers down to belts, pipes, and
 poles. Coverage is derived from prototypes (anything placed from an item that the game
 allows upgrading), so modded buildings are included automatically. There are no
-per-type toggles.
+per-type toggles — but each of the three behaviors (factory upgrades, ghost
+provisioning, upgrade-request provisioning) has its own map setting, all on by
+default, so any combination can be switched off at runtime.
 
 ## Behavior details
 
 - **Just like your own upgrade marks.** The mod's upgrades are ordinary native
   upgrade orders — bots transfer inventory, modules, and fuel exactly as they would
-  for an upgrade-planner pass. Your marks are never touched: the mod only ever
-  cancels orders it placed itself.
+  for an upgrade-planner pass. Your marks are never cancelled: the mod only ever
+  cancels orders it placed itself. (With Manage Upgrade Requests on, a starved
+  mark of yours may have its quality retargeted — but the mark itself, and the
+  building you chose, stay yours.)
 - **Starved orders self-heal.** An order whose supply was taken out from under it —
   biters forced a rebuild, or your own upgrades used the stock — is cancelled once
   it has waited out the order-expiry setting with the item still out of stock, and
@@ -63,6 +75,9 @@ per-type toggles.
 
 | Setting | Default | Notes |
 |---|---|---|
+| Manage factory | on | Upgrade placed buildings and their installed modules toward the best stocked quality |
+| Manage ghosts | on | Retarget ghosts requesting an out-of-stock quality to the best quality on hand |
+| Manage upgrade requests | on | Retarget your starved upgrade orders to the best stocked quality of their target item |
 | Entities per tick | 1 | Work budget per tick; raise for faster processing at the expense of UPS |
 | Reserve per item | 0 | Spares kept untouched per item-quality |
 | Round delay | 20 s | Rest between rounds so bots can pick up ordered items |

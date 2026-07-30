@@ -20,7 +20,9 @@ player-facing intent and behavior.
 - **Every visible mark is demand.** A marked entity — ours from a past round, a
   player's upgrade-planner mark, or another mod's — decrements the supply snapshot
   at its upgrade target and is otherwise skipped.
-- **Only ledgered marks are ever cancelled.** The order ledger
+- **Only ledgered marks are ever cancelled.** A non-ledgered mark may have its
+  quality *retargeted* under `manage-upgrade-requests` (quality only — the
+  chosen target prototype is sacred), but never cancelled. The order ledger
   (`storage.order_ledger`, keyed by unit number) is the sole way to tell our
   marks from a player's; a ledger miss means hands off, so player marks stay
   untouchable. A ledgered mark is cancelled only when it has outlived
@@ -71,11 +73,21 @@ player-facing intent and behavior.
 ## Engineering principles
 
 - Avoid abbreviations in names (settings, locals, storage keys); spell words out.
-- No prefixes on setting names.
-- Ghost provisioning is always on: a ghost whose exact quality is stocked is left to
+- No mod prefixes on setting names (`manage-` is a shared verb, not a prefix).
+- The three behaviors sit behind runtime `manage-*` toggles (`manage-factory` —
+  building and module upgrades, `manage-ghosts`, `manage-upgrade-requests`), all
+  default on, snapshotted at network entry. A toggle gates only the acting arm of
+  its behavior; demand accounting always runs, so enabled behaviors never
+  over-order against stock a disabled one's marks or ghosts will consume.
+- Ghost provisioning: a ghost whose exact quality is stocked is left to
   the bots (counted as demand); otherwise it is retargeted to the best stocked tier,
   even a lower one.
-- Module provisioning is quality-only and always on: never change which module
+- Upgrade-request provisioning: a non-ledgered mark (a player's or another mod's)
+  whose target quality is out of stock is retargeted to the best stocked tier of
+  its *target* item — cross-prototype marks resolve through the mark's target, not
+  the entity. The mark stays unledgered (still the player's, never expired) and the
+  original quality is not remembered.
+- Module provisioning is quality-only: never change which module
   prototype sits in or is requested for a slot, only its quality. Installed modules
   are only ever upgraded; unfulfillable *requests* retarget in either direction.
   Built entities only — ghost module slots are out of scope.
@@ -145,6 +157,10 @@ two portal releases with distinct version numbers — weigh changes here against
   targeting the same slot resolve pickup-before-delivery (vanilla's
   upgrade-planner-on-modules does exactly this, but it's undocumented). Verify,
   then move these up.
+- Still unverified in-game (upgrade-request provisioning): that `order_upgrade`
+  on an already-marked entity replaces the existing mark's target in place
+  (upgrade-planner re-run behavior) rather than being rejected. Verify, then
+  move this up.
 - Still unverified in-game (order expiry): that `cancel_upgrade` on an order
   whose item a bot is already carrying recalls the bot and returns the item to
   storage cleanly (rare with the 300 s default expiry, and self-correcting

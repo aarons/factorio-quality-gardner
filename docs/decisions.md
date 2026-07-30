@@ -117,12 +117,48 @@ normal chain is treated alike.
 A ghost whose exact quality is stocked is left to the bots (counted as demand);
 otherwise it is retargeted to the best stocked tier, even a lower one.
 
+*Superseded 2026-07 by the behavior toggles below: the retarget arm now sits
+behind `manage-ghosts` (default on); the demand accounting is still always on.*
+
 ## 2026-07 — Module provisioning quality-only, always on
 
 Never change which module prototype sits in or is requested for a slot, only its
 quality. Installed modules are only ever upgraded (a player chose them);
 unfulfillable *requests* are retargeted in either direction, a downgrade beating
 an empty slot. Built entities only — ghost module slots are out of scope.
+
+*Amended 2026-07: "always on" became "under `manage-factory`" with the behavior
+toggles below; quality-only is unchanged.*
+
+## 2026-07 — Three behavior toggles, acting arms only
+
+The three behaviors each sit behind a runtime-global bool setting, default on:
+`manage-factory` (upgrades of placed buildings and their installed modules,
+including module-request retargets), `manage-ghosts` (ghost retargets), and
+`manage-upgrade-requests` (starved non-ledgered marks retargeted). `manage-` is
+a shared verb naming the behavior, not a mod prefix. The flags are snapshotted
+at network entry like everything else; a mid-visit change applies from the next
+network. Crucially a toggle gates only the *acting* arm of its behavior —
+demand accounting always runs, because a stocked ghost or pending proxy
+consumes bots and supply whether or not we may retarget it, and skipping the
+count would make the enabled behaviors over-order. When all three are off,
+`enter_network` skips the network outright. No per-entity-type toggles — that
+remains a retired alternative.
+
+## 2026-07 — Upgrade-request provisioning is quality-only and ledger-free
+
+A non-ledgered mark (a player's, or another mod's) whose target quality is out
+of stock is retargeted to the best stocked tier of its *target* item — the
+target prototype's placing item, so cross-prototype marks (burner inserter →
+fast inserter) resolve through what the mark asks for, not what the entity is.
+Quality only: the chosen prototype is sacred, mirroring module provisioning.
+The retargeted mark is deliberately not adopted into the ledger: it stays the
+player's, so expiry can never cancel it, and the original quality is not
+remembered (ghost-provisioning philosophy — once swapped, the entity chases
+best supply). If stock drains again a later round just retargets again; if
+nothing is stocked the mark sits untouched with the native missing-material
+alert. This refines, not breaks, "only ledgered marks are ever cancelled":
+retargeting is not cancelling.
 
 ## 2026-07 — No PickerDollies/teleport-mod event integration
 

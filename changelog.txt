@@ -1,4 +1,18 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.2.0
+Date: 30. 07. 2026
+  Features:
+    - Upgrade-request provisioning: your own upgrade orders (from the upgrade planner) now get the
+      same treatment as ghosts. An order whose target quality is out of stock - including
+      cross-type upgrades like burner inserter to fast inserter - is retargeted to the best
+      stocked quality of the target item, even a lower one, so the swap happens instead of
+      stalling. Only the quality is adjusted, never which building you asked for, and your orders
+      are still never cancelled. Once swapped, the building is an ordinary candidate and is raised
+      back up as better stock appears.
+    - Behavior toggles: the three core behaviors - Manage Factory (upgrades of placed buildings
+      and their modules), Manage Ghosts, and Manage Upgrade Requests - each have a runtime map
+      setting, all on by default, so any combination can be enabled without a restart.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.0
 Date: 29. 07. 2026
   Features:

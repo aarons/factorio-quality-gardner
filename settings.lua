@@ -1,5 +1,26 @@
--- Behavior tunables (runtime-global).
+-- Behavior toggles and tunables (all runtime-global).
 data:extend({
+    {
+        type = "bool-setting",
+        name = "manage-factory",
+        setting_type = "runtime-global",
+        default_value = true,
+        order = "a-0"
+    },
+    {
+        type = "bool-setting",
+        name = "manage-ghosts",
+        setting_type = "runtime-global",
+        default_value = true,
+        order = "a-1"
+    },
+    {
+        type = "bool-setting",
+        name = "manage-upgrade-requests",
+        setting_type = "runtime-global",
+        default_value = true,
+        order = "a-2"
+    },
     {
         type = "int-setting",
         name = "entities-per-tick",
@@ -7,7 +28,7 @@ data:extend({
         default_value = 1,
         minimum_value = 1,
         maximum_value = 1000,
-        order = "a-0"
+        order = "b-0"
     },
     {
         type = "int-setting",
@@ -16,7 +37,7 @@ data:extend({
         default_value = 0,
         minimum_value = 0,
         maximum_value = 1000000,
-        order = "a-1"
+        order = "b-1"
     },
     {
         type = "double-setting",
@@ -25,7 +46,7 @@ data:extend({
         default_value = 20,
         minimum_value = 0,
         maximum_value = 3600,
-        order = "a-2"
+        order = "b-2"
     },
     {
         type = "int-setting",
@@ -34,6 +55,6 @@ data:extend({
         default_value = 300,
         minimum_value = 0,
         maximum_value = 86400,
-        order = "a-3"
+        order = "b-3"
     }
 })
