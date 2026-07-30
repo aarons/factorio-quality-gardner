@@ -205,6 +205,18 @@ local function examine_building(network_snapshot, entity)
   return ok
 end
 
+-- Prototype name behind a plan row's id field. The two API generations
+-- document this differently — 2.0 types it ItemID/QualityID ("returns
+-- LuaItemPrototype when read"), 2.1 types it as a plain string — and the 2.1
+-- changelog records no behavior change, so one of the two docs is describing
+-- the other's runtime. Reading through .name covers both: a name written back
+-- is accepted either way.
+local function name_of(id_field)
+  if id_field == nil then return nil end
+  if type(id_field) == "string" then return id_field end
+  return id_field.name
+end
+
 -- Modules a plan row asks for: the sum of its per-stack counts. Rows with no
 -- inventory positions (e.g. equipment-grid requests) count as zero.
 local function plan_module_count(plan)
@@ -233,8 +245,9 @@ local function examine_proxy(network_snapshot, proxy)
   local plans = proxy.insert_plan
   local changed = false
   for _, plan in ipairs(plans) do
-    local tier = qualities.tier_of(plan.id.quality or "normal")
-    local by_tier = tier and network_snapshot.supply[plan.id.name]
+    local item_name = name_of(plan.id.name)
+    local tier = qualities.tier_of(name_of(plan.id.quality) or "normal")
+    local by_tier = tier and item_name and network_snapshot.supply[item_name]
     if by_tier then
       local count = plan_module_count(plan)
       local stock = by_tier[tier]
@@ -242,7 +255,7 @@ local function examine_proxy(network_snapshot, proxy)
         -- Stocked: bots will fill this; its demand consumes the supply.
         by_tier[tier] = stock - count
       elseif count > 0 and count <= network_snapshot.bot_headroom
-        and storage.config.module_item[plan.id.name] then
+        and storage.config.module_item[item_name] then
         local best = best_stocked_tier(by_tier)
         if best then
           plan.id.quality = qualities.at(best).name

@@ -1,4 +1,14 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.1
+Date: 30. 07. 2026
+  Info:
+    - Factorio 2.0 release, feature-identical to 1.1.0. A mod can declare only one major version, so
+      2.0 and 2.1 are published as separate releases from here on. Needs Factorio 2.0.46 or newer -
+      the release that added the API the module swaps read.
+  Bugfixes:
+    - Retargeting an out-of-stock module request no longer silently does nothing when the game hands
+      back an existing request's item and quality as prototypes rather than names.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.0
 Date: 29. 07. 2026
   Features:

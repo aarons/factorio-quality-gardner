@@ -1,5 +1,6 @@
 reference
 archive
+builds
 *.zip
 tests/venv
 tests/__pycache__

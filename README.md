@@ -1,8 +1,8 @@
 # Quality Gardener
 
-A Factorio 2.1 mod. When higher-quality versions of your buildings sit in a logistic
-network, the lower-quality placed buildings in that network are marked for upgrade so
-construction bots swap them out.
+A Factorio 2.0 mod (2.0.46 or newer). When higher-quality versions of your buildings
+sit in a logistic network, the lower-quality placed buildings in that network are
+marked for upgrade so construction bots swap them out.
 
 ## How to use it
 
