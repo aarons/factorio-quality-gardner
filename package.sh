@@ -95,6 +95,7 @@ PACKAGE_EXCLUSIONS=(
     'tests/'
     '.luacheckrc'
     '.luarc.json'
+    '.DS_Store'
 )
 
 for exclusion in "${PACKAGE_EXCLUSIONS[@]}"; do

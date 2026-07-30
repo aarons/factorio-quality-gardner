@@ -3,3 +3,4 @@ archive
 *.zip
 tests/venv
 tests/__pycache__
+.DS_Store
