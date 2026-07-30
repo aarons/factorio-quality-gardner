@@ -1,20 +1,13 @@
 {
   "name": "quality-gardener",
-  "version": "1.1.0",
+  "version": "1.0.1",
   "title": "Quality Gardener",
   "author": "raley",
   "homepage": "https://github.com/aarons/factorio-quality-gardener",
   "description": "Let bots manage your garden **ahem** factory. Bots will automatically distribute higher quality buildings when they are available in logistic storage. They will also find the next-best-available building for ghosts if the ghost's requested quality is not available.",
-  "factorio_version": "2.1",
+  "factorio_version": "2.0",
   "dependencies": [
     "base",
     "quality"
-  ],
-  "quality_required": true,
-  "rail_bridges_required": false,
-  "space_travel_required": false,
-  "spoiling_required": false,
-  "freezing_required": false,
-  "segmented_units_required": false,
-  "expansion_shaders_required": false
+  ]
 }

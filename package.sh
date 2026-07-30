@@ -1,9 +1,10 @@
 #!/bin/bash
 
 # This script packages the Factorio mod for release.
-# It reads the mod name and version from info.json, creates a zip file
-# named quality-gardener_<version>.zip, and excludes the .git directory.
-# It also attempts to copy the package to the system's Factorio mods folder.
+# It reads the mod name and version from info.json and creates a zip file
+# named quality-gardener_<version>.zip under builds/, excluding the .git
+# directory. This is the 2.0 release line: unlike the 2.1 branch, the zip is
+# not copied into the local Factorio mods folder (a 2.1 install can't load it).
 
 set -e
 
@@ -105,88 +106,17 @@ done
 # Copy all files to the temporary directory with exclusions
 eval "rsync -av $EXCLUSIONS ./ \"$FULL_PACKAGE_DIR/\""
 
-# Create archive folder if it doesn't exist
-mkdir -p archive
-
-# Move any existing version zip files to archive folder
-if ls quality-gardener_*.zip 1> /dev/null 2>&1; then
-    echo "Moving existing version files to archive folder..."
-    mv quality-gardener_*.zip archive/
-fi
-
 # Create the zip file
 (
   cd "$TMP_DIR"
   zip -r "$PACKAGE_DIR".zip "$PACKAGE_DIR"
 )
 
-# Move the zip file to the current directory
-mv "$TMP_DIR/$PACKAGE_DIR.zip" ./
+# Move the zip file into builds/
+mkdir -p builds
+mv "$TMP_DIR/$PACKAGE_DIR.zip" builds/
 
-echo "Successfully created package: $PACKAGE_DIR.zip"
-
-# Detect Factorio mods folder and copy package
-detect_and_copy_to_mods_folder() {
-    local package_file="$PACKAGE_DIR.zip"
-    local mods_folder=""
-
-    # Detect operating system and set appropriate mods folder path
-    case "$(uname -s)" in
-        Darwin*)
-            # macOS
-            mods_folder="$HOME/Library/Application Support/factorio/mods"
-            ;;
-        Linux*)
-            # Linux
-            if [ -d "$HOME/.factorio/mods" ]; then
-                mods_folder="$HOME/.factorio/mods"
-            elif [ -d "$HOME/.local/share/factorio/mods" ]; then
-                mods_folder="$HOME/.local/share/factorio/mods"
-            fi
-            ;;
-        CYGWIN*|MINGW32*|MSYS*|MINGW*)
-            # Windows (Git Bash, MSYS2, etc.)
-            if [ -d "$APPDATA/Factorio/mods" ]; then
-                mods_folder="$APPDATA/Factorio/mods"
-            elif [ -d "$HOME/AppData/Roaming/Factorio/mods" ]; then
-                mods_folder="$HOME/AppData/Roaming/Factorio/mods"
-            fi
-            ;;
-    esac
-
-    if [ -n "$mods_folder" ] && [ -d "$mods_folder" ]; then
-        echo ""
-        echo "Found Factorio mods folder: $mods_folder"
-        if cp "$package_file" "$mods_folder/"; then
-            echo "✓ Successfully copied $package_file to Factorio mods folder"
-            echo "  The mod is now ready for testing in Factorio!"
-        else
-            echo "✗ Failed to copy to mods folder (check permissions)"
-            echo "  You can manually copy $package_file to: $mods_folder"
-        fi
-    else
-        echo ""
-        echo "ℹ️  Factorio mods folder not found automatically"
-        echo "   Please manually copy $package_file to your Factorio mods folder:"
-        case "$(uname -s)" in
-            Darwin*)
-                echo "   macOS: ~/Library/Application Support/factorio/mods/"
-                ;;
-            Linux*)
-                echo "   Linux: ~/.factorio/mods/ or ~/.local/share/factorio/mods/"
-                ;;
-            CYGWIN*|MINGW32*|MSYS*|MINGW*)
-                echo "   Windows: %APPDATA%\\Factorio\\mods\\"
-                ;;
-        esac
-    fi
-}
-
-# Call the detection and copy function
-detect_and_copy_to_mods_folder
-
-echo ""
-echo "Mod installed at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+echo "Successfully created package: builds/$PACKAGE_DIR.zip"
 
 # Check for debug mode in core.lua and show warning at the end
 if grep -rq "debug_enabled = true" scripts/ 2>/dev/null; then

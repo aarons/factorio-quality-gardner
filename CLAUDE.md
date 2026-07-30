@@ -1,6 +1,6 @@
 # Quality Gardener
 
-Factorio 2.1 mod: when higher-quality versions of placed buildings sit in a logistic
+Factorio 2.0 mod: when higher-quality versions of placed buildings sit in a logistic
 network, lower-quality placed buildings in that network are marked for upgrade so
 construction bots swap them out.
 
@@ -85,12 +85,26 @@ player-facing intent and behavior.
 `./validate.sh` runs luacheck. `./package.sh` validates, zips, and copies the mod
 into the local Factorio mods folder.
 
-This branch is the Factorio **2.1** release line; branch `2.0` is the parallel 2.0
-line. A mod declares exactly one major version, so every behavior change ships as
-two portal releases with distinct version numbers — weigh changes here against the
-2.0 branch, and note its `package.sh` builds to `builds/` without installing.
+This branch is the Factorio **2.0** release line; `main` is the parallel 2.1 line.
+A mod declares exactly one major version, so every behavior change ships as two
+portal releases with distinct version numbers: 1.0.x here, 1.1.x on the 2.1 line.
+Weigh changes here against the 2.1 branch. This branch's `package.sh` builds to
+`builds/` without installing (a 2.1 local install can't load a 2.0 zip); the 2.1
+branch's installs into the local mods folder. The 2.0-only info.json differences:
+`factorio_version` is "2.0" and there are no `*_required` content flags (those are
+2.1 additions — in 2.0 the `quality` mod dependency is the gate).
 
 ## Verified API facts (don't re-derive)
+
+2.0-line note: every runtime API member this mod touches was checked
+member-by-member against the official 2.0.75 machine-readable spec
+(`runtime-api.json`, via typed-factorio 3.36.0, the `factorio-2.0` release) —
+all signatures below hold unchanged on 2.0, including `get_contents(member?)`,
+quality in `order_upgrade` targets, read-write `insert_plan`/`removal_plan`,
+and `removal_plan` on `create_entity`. The 2.0.76→2.0.77 changelog was not
+reachable from the sandbox that did the check; stable-line patches almost
+never touch the runtime API, but if something breaks only on 2.0.76+, diff
+those two changelogs' Scripting sections first.
 
 - `LuaLogisticNetwork.get_contents(member?)` — `member` is optional (`"storage"` or
   `"providers"`); when omitted, returns item counts for the **entire network**. We
@@ -108,19 +122,19 @@ two portal releases with distinct version numbers — weigh changes here against
   returning `false`, not by erroring.
 - Requester-chest contents do not count toward logistic network contents; a bare
   `get_contents()` only reports what bots can actually draw from.
-- Item-request-proxy (verified against runtime-api v2.1.12):
+- Item-request-proxy (verified against runtime-api v2.1.12 and v2.0.75):
   `LuaEntity.insert_plan` and `.removal_plan` are **read-write**
   `array[BlueprintInsertPlan]` — retargeting an existing proxy is a plain
   assignment. A plan is `{id = {name, quality}, items = {in_inventory =
   {{inventory, stack, count?}}}}` where `inventory` is a `defines.inventory` value
   and `stack` is **0-based** (LuaInventory slots are 1-based).
-  What `id.name`/`id.quality` give back on **read** is the one thing the two API
-  generations disagree about: 2.1 types them as plain **strings**
-  (`BlueprintItemIDAndQualityIDPair`), 2.0 as `ItemID`/`QualityID` ("returns
-  `LuaItemPrototype` when read"), and the 2.1 changelog records no behavior change
-  — so one doc describes the other's runtime and neither is verified in-game.
-  `name_of` in `gardener.lua` reads through `.name` so both work; writing a name
-  string back is accepted either way. Don't "simplify" it away.
+  On what `id.name`/`id.quality` give back on **read**, the 2.0.75 spec types
+  them as plain **strings** (`BlueprintItemIDAndQualityIDPair`), same as 2.1 —
+  an earlier 2.0 doc revision said `ItemID`/`QualityID` ("returns
+  `LuaItemPrototype` when read"), so the docs have flip-flopped and neither
+  reading is verified in-game. `name_of` in `gardener.lua` reads through
+  `.name` so both work; writing a name string back is accepted either way.
+  Don't "simplify" it away.
 - `entity.item_request_proxy` (read-only) returns the first proxy targeting the
   entity; multiple proxies per entity are possible but there is no plural accessor.
   `proxy.proxy_target` is the reverse link.

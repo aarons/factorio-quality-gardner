@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.0.1
+Date: 30. 07. 2026
+  Changes:
+    - Factorio 2.0 release line. Same behavior as 1.1.0 on the 2.1 line; the 1.0.x series serves
+      Factorio 2.0 players while 1.1.x serves 2.1. Every runtime API call was checked against the
+      2.0 documentation - no code differences were needed, only packaging metadata.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.0
 Date: 29. 07. 2026
   Features:
