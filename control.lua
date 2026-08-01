@@ -1,9 +1,5 @@
---[[
-control.lua
-
-Entry point for Quality Gardener. No entity events: the scan-based pass in
-gardener.lua reads the world fresh each round.
-]]
+-- Entry point. No entity events: the scan pass in gardener.lua reads the
+-- world fresh each round.
 
 local qualities = require("scripts.qualities")
 local gardener = require("scripts.gardener")
@@ -33,8 +29,6 @@ local function build_and_store_config()
       end
     end
   end
-  -- Ghosts are scanned alongside built entities so they can be counted as
-  -- demand and retargeted to the best stocked quality.
   all_tracked_types[#all_tracked_types + 1] = "entity-ghost"
   storage.config = {
     placing_item_name = placing_item_name,

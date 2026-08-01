@@ -1,13 +1,7 @@
---[[
-qualities.lua
-
-The quality chain, walked once from "normal" via quality.next and cached as an
-ordered array. Everything else in the mod refers to qualities by "tier" — the
-1-based position in this chain. Qualities not reachable from "normal" are
-ignored entirely.
-
-Rebuilt from prototypes on init/load; nothing here persists.
-]]
+-- The quality chain, walked from "normal" via quality.next and cached as an
+-- ordered array; a "tier" is the 1-based position in this chain. Qualities
+-- not reachable from "normal" are ignored. Rebuilt on init/load; nothing
+-- here persists.
 
 local qualities = {}
 

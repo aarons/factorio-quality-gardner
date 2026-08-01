@@ -22,6 +22,13 @@ data:extend({
         order = "a-2"
     },
     {
+        type = "bool-setting",
+        name = "manage-space-platforms",
+        setting_type = "runtime-global",
+        default_value = true,
+        order = "a-3"
+    },
+    {
         type = "int-setting",
         name = "entities-per-tick",
         setting_type = "runtime-global",
@@ -56,5 +63,14 @@ data:extend({
         minimum_value = 0,
         maximum_value = 86400,
         order = "b-3"
+    },
+    {
+        type = "double-setting",
+        name = "space-platform-delivery-wait-seconds",
+        setting_type = "runtime-global",
+        default_value = 300,
+        minimum_value = 0,
+        maximum_value = 86400,
+        order = "b-4"
     }
 })

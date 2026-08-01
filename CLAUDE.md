@@ -1,22 +1,23 @@
 # Quality Gardener
 
 Factorio 2.1 mod: when higher-quality versions of placed buildings sit in a logistic
-network, lower-quality placed buildings in that network are marked for upgrade so
-construction bots swap them out.
+network (or a space platform's hub), lower-quality placed buildings there are marked
+for upgrade so construction bots — or the hub — swap them out.
 
-The architecture in one line: *no entity events and, except for the order
-ledger, no per-entity state — a round-robin, budgeted scan pass reads each
-logistic network fresh and orders upgrades on the spot.* `README.md` covers
-player-facing intent and behavior.
+The architecture in one line: *no entity events and, except for the two
+ledgers, no per-entity state — a round-robin, budgeted scan pass reads each
+logistic network and space platform fresh and orders upgrades on the spot.*
+`README.md` covers player-facing intent and behavior.
 
 ## Design invariants (read before changing core behavior)
 
 - **The world is the only source of truth.** Nothing per-entity is stored except
-  the order ledger, which records only the two facts the world cannot answer:
-  that a mark is ours, and when we placed it — facts that can never go stale.
-  Each network visit reads reality fresh (contents, roboport cells, the entities
-  inside them) and issues orders directly; marked entities are recognized by
-  asking the entity itself (`to_be_upgraded()`).
+  two ledgers, each recording only facts the world cannot answer — the order
+  ledger: that a mark is ours and when we placed it; the platform wait ledger:
+  when a starved target was first seen waiting. Facts that can never go stale.
+  Each visit reads reality fresh (contents, roboport cells or the hub, the
+  entities inside them) and issues orders directly; marked entities are
+  recognized by asking the entity itself (`to_be_upgraded()`).
 - **Every visible mark is demand.** A marked entity — ours from a past round, a
   player's upgrade-planner mark, or another mod's — decrements the supply snapshot
   at its upgrade target and is otherwise skipped.
@@ -34,6 +35,48 @@ player-facing intent and behavior.
   sight. Losing the ledger is safe: orphaned marks simply never expire. Still
   accepted, deliberately: no cancel cooldown and no runtime-state restore; see
   the decision log.
+  The platform wait ledger (`storage.platform_wait_ledger`, swept by the same
+  between-rounds mechanism) is *not* a second ownership registry — it is a
+  clock table with no ownership meaning, answering only "since when has this
+  target been waiting." Losing it restarts clocks, which only ever means
+  waiting longer — the conservative direction. One mechanism, two tables: the
+  table answers "what does membership mean."
+- **A space platform is its own network.** Platforms have no logistic network
+  and no bots — the hub auto-builds ghosts, upgrades, and module requests from
+  its own inventory. Under `manage-space-platforms`, each platform is visited
+  like a network: supply is the hub inventory (`hub_main`; cargo bays extend
+  it, `hub_trash` is items leaving and excluded), coverage is one
+  whole-surface scan (platforms are small and bounded), and orders are
+  uncapped — there are no bots to meter, so only-order-against-stock is the
+  only bound. Platform slots carry only the force's platform index — the
+  platform is re-fetched at entry, never stored.
+- **Two views of platform supply, deliberately not merged.** Spendable stock
+  (hub contents, reserve subtracted) is the only thing orders are placed
+  against. Never order against an inbound or requested item: an upgrade order
+  whose item is absent from the hub blocks the platform's *entire* serial
+  construction queue (community-reported, 2.0.72 dev-confirmed), so
+  only-order-against-stock is safety-critical on platforms, with
+  `order-expiry-seconds` as the queue-block escape hatch. Pending fulfillment
+  (`targeted_items_deliver`, outstanding request filters) is only ever a
+  reason to *wait* before retargeting, never to order.
+- **Platform provisioning waits for deliveries.** Items can be on order from
+  the planet below or another platform, and a naive retarget would orphan the
+  delivery the player is waiting on. The three retargeting arms (ghosts,
+  non-ledgered marks, module requests) run the wait rules on platforms, in
+  order: target inbound (`targeted_items_deliver`) → leave alone; in transit
+  (`space_location == nil`, deliveries impossible) → act immediately, a
+  downgrade now beats a hole in the defenses; a request possibly in play (any
+  filter on the item — matching is deliberately coarse — or the hub's
+  auto-request on) → retarget only after
+  `space-platform-delivery-wait-seconds` on the wait-ledger clock; nothing
+  requested and auto-request off → act immediately. The clock starts the
+  first time the target is seen starved — even with nothing aboard to
+  retarget to, so stock arriving after the wait acts at once — and resets
+  when the observed target stops matching the recorded one. A request only
+  starts the clock, never vetoes retargeting forever — the timeout is the
+  stale-request handling. Our own orders never wait (placed only against
+  spendable stock, ledgered, expiring normally). Planet networks are
+  untouched by all of this.
 - **Network identity is transient; only snapshots span ticks.** `LuaLogisticNetwork`
   refs and ids invalidate on any merge/split — never store one across a tick
   boundary. Entering a network reads everything needed (bot count, supply,
@@ -54,10 +97,12 @@ player-facing intent and behavior.
   next round's contents reads are close to accurate); the ledger sweep runs
   during the rest under the same budget, delaying the next round only when the
   ledger outlasts the delay.
-- **Orders are capped by bot headroom.** Each network gets at most
-  `available_construction_robots` orders per visit, read fresh at entry — busy bots
+- **Orders are capped by bot headroom.** Each network's per-visit order budget
+  is `available_construction_robots`, read fresh at entry — busy bots
   (including ones flying our orders) self-exclude, so the fresh read is the whole
-  cap. A stale count only delays marks until the next visit.
+  cap. A stale count only delays marks until the next visit. Platforms are
+  exempt: no bots, no cap — the budget is infinite and spendable stock alone
+  bounds orders there.
 
 ## Retired alternatives (don't reintroduce — rationale in `docs/decisions.md`)
 
@@ -79,9 +124,12 @@ player-facing intent and behavior.
 - No mod prefixes on setting names (`manage-` is a shared verb, not a prefix).
 - The three behaviors sit behind runtime `manage-*` toggles (`manage-factory` —
   building and module upgrades, `manage-ghosts`, `manage-upgrade-requests`), all
-  default on, snapshotted at network entry. A toggle gates only the acting arm of
+  default on, snapshotted at visit entry. A toggle gates only the acting arm of
   its behavior; demand accounting always runs, so enabled behaviors never
   over-order against stock a disabled one's marks or ghosts will consume.
+  A fourth toggle, `manage-space-platforms` (default on), gates platform visits
+  entirely — platforms are disjoint from planet networks, so skipping them has
+  no cross-contamination effect on demand accounting.
 - Ghost provisioning: a ghost whose exact quality is stocked is left to
   the bots (counted as demand); otherwise it is retargeted to the best stocked tier,
   even a lower one.
@@ -105,69 +153,12 @@ line. A mod declares exactly one major version, so every behavior change ships a
 two portal releases with distinct version numbers — weigh changes here against the
 2.0 branch, and note its `package.sh` builds to `builds/` without installing.
 
-## Verified API facts (don't re-derive)
+## API notes
 
-- `LuaLogisticNetwork.get_contents(member?)` — `member` is optional (`"storage"` or
-  `"providers"`); when omitted, returns item counts for the **entire network**. We
-  always call it bare. Returns an array of `{name, quality, count}` where `quality`
-  is a **string** prototype name.
-- `order_upgrade{target={name=..., quality=...}, force=...}` supports same-name
-  quality-only upgrades; `get_upgrade_target()` returns (prototype, quality).
-- `LuaEntity.cancel_upgrade(force, player?)` returns a boolean — true when a
-  pending upgrade was cancelled.
-- `LuaLogisticNetwork.available_construction_robots` — read-only uint32, "number of
-  construction robots available for a job" (idle bots; busy ones self-exclude).
-- `"not-upgradable"` is an `EntityPrototypeFlag` ("can't be selected by the upgrade
-  planner"), testable via `LuaEntityPrototype.has_flag`; it is the only documented
-  planner gate. `order_upgrade` returns a boolean — rejection is signalled by
-  returning `false`, not by erroring.
-- Requester-chest contents do not count toward logistic network contents; a bare
-  `get_contents()` only reports what bots can actually draw from.
-- Item-request-proxy (verified against runtime-api v2.1.12):
-  `LuaEntity.insert_plan` and `.removal_plan` are **read-write**
-  `array[BlueprintInsertPlan]` — retargeting an existing proxy is a plain
-  assignment. A plan is `{id = {name, quality}, items = {in_inventory =
-  {{inventory, stack, count?}}}}` where `inventory` is a `defines.inventory` value
-  and `stack` is **0-based** (LuaInventory slots are 1-based).
-  What `id.name`/`id.quality` give back on **read** is the one thing the two API
-  generations disagree about: 2.1 types them as plain **strings**
-  (`BlueprintItemIDAndQualityIDPair`), 2.0 as `ItemID`/`QualityID` ("returns
-  `LuaItemPrototype` when read"), and the 2.1 changelog records no behavior change
-  — so one doc describes the other's runtime and neither is verified in-game.
-  `name_of` in `gardener.lua` reads through `.name` so both work; writing a name
-  string back is accepted either way. Don't "simplify" it away.
-- `entity.item_request_proxy` (read-only) returns the first proxy targeting the
-  entity; multiple proxies per entity are possible but there is no plural accessor.
-  `proxy.proxy_target` is the reverse link.
-- `surface.create_entity{name = "item-request-proxy", target = <required entity>,
-  position, force, modules = <insert plans>, removal_plan = <removal plans>}` —
-  `modules` takes full `BlueprintInsertPlan`s despite the legacy name, and
-  `removal_plan` is accepted at creation time.
-- `entity.get_module_inventory()` returns `LuaInventory?`; `LuaInventory.index`
-  gives the matching `defines.inventory` value (no hand-built per-type table
-  needed). Per-slot stacks expose `.name` (string) and `.quality`
-  (`LuaQualityPrototype`); check `valid_for_read` first.
-- Bots performing a module swap use the removal plan to return the old module to
-  storage — no special handling needed (confirmed by the mod author).
-- Still unverified in-game: that construction bots pull upgrade items from network
-  supply as expected. If orders stall despite stock, check this first.
-- Still unverified in-game (ghost provisioning): that `order_upgrade` on an
-  entity-ghost applies instantly (upgrade-planner-on-ghost behavior), preserves ghost
-  settings and `item_requests`, and supports quality downgrades. Verify, then move
-  these up into the verified list.
-- Still unverified in-game (module provisioning): that writing `insert_plan` on a
-  dispatched proxy re-issues bot orders cleanly, and that a removal and insert
-  targeting the same slot resolve pickup-before-delivery (vanilla's
-  upgrade-planner-on-modules does exactly this, but it's undocumented). Verify,
-  then move these up.
-- Still unverified in-game (upgrade-request provisioning): that `order_upgrade`
-  on an already-marked entity replaces the existing mark's target in place
-  (upgrade-planner re-run behavior) rather than being rejected. Verify, then
-  move this up.
-- Still unverified in-game (order expiry): that `cancel_upgrade` on an order
-  whose item a bot is already carrying recalls the bot and returns the item to
-  storage cleanly (rare with the 300 s default expiry, and self-correcting
-  either way — the next round re-orders). Verify, then move this up.
+Verified API facts and the in-game verification backlog live in
+`docs/api-notes.md`. Consult it before touching an API call; don't re-derive a
+fact recorded there, and move newly verified items from its backlog into its
+verified list.
 
 ## Localization
 

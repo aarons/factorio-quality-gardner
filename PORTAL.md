@@ -14,6 +14,14 @@ They will also replace ghosts with the next best quality when the requested item
 
 All entity types are supported, including modules in machines and beacons.
 
+## Space Platforms
+
+Platforms are gardened too (with Space Age installed). A platform has no construction bots - the hub builds and upgrades directly from its own inventory - so each platform is treated as its own network, with the hub inventory (cargo bays included) as the supply. Upgrades are only ever ordered against items actually aboard.
+
+Deliveries are respected: an item already on its way up (rocket or cargo pod) is always left alone, and a ghost or order covered by an open request - including the hub's automatic "request missing construction materials" system - is given a configurable delivery wait (default 300 s) to arrive before it is adjusted to the best quality aboard. A platform in transit never waits: a turret destroyed by asteroids is refilled immediately from whatever is on hand, because a downgrade now beats a hole in the defenses for the rest of the trip.
+
+Platform management can be turned off with the Manage Space Platforms map setting.
+
 ## Helps with mixed quality factories
 
 This is built as a companion mod for [Quality Control](https://mods.factorio.com/mod/quality-control), to help with copy-pasting parts of the factory that have lots of mixed quality levels. You can copy/paste without worrying as bots will figure out the best alternative options if they aren't available.

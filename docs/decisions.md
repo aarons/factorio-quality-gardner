@@ -172,7 +172,8 @@ events, and don't add a position cache that would make them relevant again.
 
 Validation is luacheck via `./validate.sh`, nothing more. Factorio runtime
 behavior can't be meaningfully unit-tested outside the game; in-game
-verification plus the "still unverified" list in `CLAUDE.md` is the process.
+verification plus the "still unverified" list in `docs/api-notes.md` is the
+process.
 
 ## 2026-08-01 — The order ledger reframed as a cancellation license
 
@@ -199,3 +200,78 @@ them would turn the structurally-enforced membership fact into a per-entry
 field check at every call site, and a row-per-managed-entity table with
 status columns is the retired per-entity state's shape. One mechanism, one
 entry shape, two tables — the table answers "what does membership mean."
+
+## 2026-08-01 — Space platform support: deliveries gate retargeting (plan-005)
+
+Platforms map cleanly onto the existing engine — the platform is the network,
+the hub inventory is the supply, one whole-surface scan is the coverage, the
+hub is the builder — but they introduce one genuinely new concern: items can
+be *on order* from the planet below (or, in 2.1, another platform). A common
+player pattern is pasting ghosts or marks for items the platform doesn't
+stock and waiting minutes for the rocket; a naive "target out of stock →
+retarget now" would silently strand that delivery. Hence the delivery-wait
+rules, applied on platforms only, by the three retargeting arms only:
+
+- **Inbound wins outright.** A target present in `targeted_items_deliver` is
+  physically en route (rocket or cargo pod — both arrive as pods, one member
+  covers both); retargeting it would orphan real cargo. Left alone, no clock.
+- **In transit skips the wait.** With no planet below and no neighbors
+  (`space_location == nil`) nothing can arrive, and the motivating case is
+  turrets destroyed mid-flight: a downgrade now beats a hole in the defenses
+  for the rest of the trip. Act immediately.
+- **A request only starts a clock, never vetoes.** Any request filter on the
+  item, or the hub's auto-request system being on at all (it can lag a fresh
+  ghost, and per the unresolved 2.1.7 report may never populate for
+  retargeted ghosts), starts the `space-platform-delivery-wait-seconds` clock
+  in the wait ledger. Filter matching is deliberately coarse — quality and
+  count are ignored — because a false match only delays acting by the
+  timeout, the conservative direction, and the exactness machinery isn't
+  worth its weight. Anything stronger than a clock — treating "requested" as
+  "not starved" — would let a stale request veto retargeting forever, the
+  opposite of the setting's purpose; the timeout *is* the stale-request
+  handling. The clock starts the first time the target is seen starved, even
+  when nothing is aboard to retarget to — starting it only once an
+  alternative tier shows up would make the player wait the full delay *after*
+  stock arrives, exactly backwards. It resets when the observed target stops
+  matching the recorded one (cross-prototype re-marks included), clears when
+  the target is seen stocked or inbound, and an elapsed clock that couldn't
+  act (nothing stocked to retarget to) stays elapsed so stock arriving later
+  is acted on at once.
+- **Nothing requested, auto-request off:** nothing is coming and nothing will
+  be. Act immediately.
+
+Why our own orders skip the wait: `examine_building` orders only against
+confirmed hub stock, is ledgered, and expires through `order-expiry-seconds`
+— which on platforms doubles as the escape hatch for the dev-confirmed 2.0.72
+behavior where an unfulfillable upgrade order blocks the hub's entire serial
+construction queue. That bug is also why only-order-against-stock (never
+against inbound or requested items) is safety-critical on platforms rather
+than merely tidy, and why the two views of supply — spendable stock vs
+pending fulfillment — are deliberately never merged. Note the window: a
+starved order can wedge the queue for up to the full expiry; platform-heavy
+saves may want a lower `order-expiry-seconds` until in-game verification
+suggests a platform-specific expiry.
+
+Why platform orders are uncapped: the network cap exists because bots are a
+scarce shared executor — headroom meters how much work the network can absorb.
+A platform has no bots; the hub builds serially from its own inventory, and
+every order is already placed against confirmed stock, so spendable stock is
+the natural and sufficient bound. An artificial per-visit constant would only
+slow convergence for nothing. In the code the platform snapshot carries an
+infinite order budget (the field bot headroom feeds on networks), keeping the
+shared arithmetic untouched.
+
+Why player marks get the wait too (extra caution relative to planets): on a
+planet a starved player mark is retargeted on sight, because bots simply
+ignore unfulfillable marks and stock is usually a bot-trip away. On a
+platform the same mark is more likely to be a deliberate "waiting for the
+rocket" order, deliveries take minutes, and the mark may itself have induced
+an auto-request — so the wait rules run first. The mark stays unledgered and
+uncancellable either way; the wait ledger's entry for it is a clock, not a
+claim (see the cancellation-license entry above).
+
+Module-request proxies run the wait at proxy granularity: one clock keyed by
+the proxy, its target recorded from the first starved row, all starved rows
+retargeted together when it elapses. A per-row clock would need a composite
+key and buys nothing — multiple simultaneously-starved rows on one proxy are
+rare, and the cost of imprecision is only waiting longer.

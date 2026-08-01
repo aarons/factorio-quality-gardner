@@ -1,4 +1,23 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.3.0
+Date: 01. 08. 2026
+  Features:
+    - Space platform support: platforms are gardened too. A platform has no construction bots - the
+      hub builds and upgrades directly from its own inventory - so each platform is treated as its
+      own network, with the hub inventory (cargo bays included) as the supply. Building and module
+      upgrades, ghost provisioning, and upgrade-request provisioning all work the same as on a
+      planet, and upgrades are only ever ordered against items actually aboard.
+    - Delivery-aware provisioning: before adjusting a ghost, upgrade order, or module request on a
+      platform, the gardener checks for deliveries. An item already on its way up (rocket or cargo
+      pod) is always left alone; one covered by an open request - including the hub's automatic
+      "request missing construction materials" system - is given the new Space Platform Delivery
+      Wait setting (default 300 s) to arrive before the order is adjusted to the best quality
+      aboard. A platform in transit never waits: a turret destroyed by asteroids is refilled from
+      whatever is on hand, because a downgrade now beats a hole in the defenses for the rest of
+      the trip.
+    - New settings: Manage Space Platforms (on by default; turn off to garden planets only) and
+      Space Platform Delivery Wait (0 adjusts immediately, like on a planet).
+---------------------------------------------------------------------------------------------------
 Version: 1.2.0
 Date: 30. 07. 2026
   Features:

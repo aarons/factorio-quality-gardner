@@ -61,7 +61,7 @@ Space Age is technically an optional dependency: without it,
 
 ## Implementation Notes
 
-### Verified API facts (runtime-api.json 2.1.12; keep with CLAUDE.md's verified list)
+### Verified API facts (runtime-api.json 2.1.12; keep with `docs/api-notes.md`)
 
 Enumeration and supply:
 
@@ -167,12 +167,10 @@ membership carries ownership.
   order against an inbound or requested item: the hub doesn't hold it yet, and
   an unfulfillable order risks blocking the whole queue.
 - **Pending fulfillment** (what may be worth waiting for): the item+quality
-  appears in `targeted_items_deliver` (physically en route), or an
-  *outstanding* request filter matches — outstanding meaning the filter's
-  `count` exceeds current hub stock, so a long-satisfied standing request
-  doesn't start clocks. Quality matching is conservative: a filter with nil
-  quality, nil comparator, or any non-`"="` comparator matches every tier of
-  that item.
+  appears in `targeted_items_deliver` (physically en route), or a request
+  filter names the item at all. Filter matching is deliberately coarse —
+  quality and count are ignored — because a false match only starts a wait
+  clock, and the timeout caps the cost at waiting longer.
 
 ### The wait rules
 
@@ -187,8 +185,8 @@ order:
    immediately, no wait.** The motivating case: turrets destroyed mid-flight
    must be refilled from whatever the hub holds — a downgrade now beats a
    hole in the defenses for the rest of the trip.
-3. **Deliveries possible and a request may be in play** — a matching
-   outstanding request filter exists, *or* the hub's
+3. **Deliveries possible and a request may be in play** — a request filter
+   names the item, *or* the hub's
    `request_missing_construction_materials` is true (the auto-request section
    can lag a freshly pasted ghost, and per the 2.1.7 bug may never populate):
    run the wait clock; retarget only once
@@ -219,15 +217,13 @@ purpose. Planet networks are untouched by all of this (no wait, no ledger).
    are re-fetched from `force.platforms[index]` at entry, never stored.
 3. **`enter_platform`.** Produces the *same snapshot shape* as
    `enter_network` so everything downstream is untouched: supply from
-   `hub_main`; `cells` = one box covering the surface (or a nil-area
-   whole-surface scan variant); `bot_headroom` = a fixed per-visit order cap
-   (a module-local constant, e.g. 10 — there is no headroom signal to read,
-   and the cap's real job of "don't flood the builder" still applies);
-   toggles snapshotted as usual. Additionally snapshot everything the wait
-   rules need: fold `targeted_items_deliver` into plain
-   `inbound[item][tier] = count` data, the outstanding request filters into
-   `requested[item][tier]` plus an any-quality set for range/any filters, and
-   read `request_missing_construction_materials` and the
+   `hub_main`; `cells` = one whole-surface scan; `order_budget` = infinity —
+   there are no bots to meter, the hub builds serially from its own
+   inventory, and only-order-against-stock already bounds every order, so a
+   cap would be meaningless; toggles snapshotted as usual. Additionally
+   snapshot everything the wait rules need: fold `targeted_items_deliver`
+   into a plain inbound set, the request filters into a requested-item set,
+   and read `request_missing_construction_materials` and the
    deliveries-possible predicate (`space_location`) once at entry.
 4. **Wait rules in the examine paths.** For platform snapshots only (a flag
    on the snapshot), the three retargeting arms — ghost provisioning,
@@ -293,15 +289,15 @@ least one platform):
       (the snapshot's surface_index path and entity `.valid` checks hold).
 
 Move each verified item from "community-reported" / "unverified" into
-CLAUDE.md's verified list as it is confirmed.
+the verified list in `docs/api-notes.md` as it is confirmed.
 
 ## Documentation
 
 - `CLAUDE.md` — architecture line ("logistic networks *and space platforms*"),
   design invariants (platform-as-network, the two-views-of-supply rule, the
   wait ledger as a clock table under the cancellation-license framing, the
-  queue-block hazard), verified API facts (move the platform facts in once
-  confirmed in-game).
+  queue-block hazard). `docs/api-notes.md` — verified API facts (move the
+  platform facts in once confirmed in-game).
 - `docs/decisions.md` — why deliveries gate retargeting, why in-transit
   platforms skip the wait, why the wait ledger is a separate table from the
   order ledger, why our own orders skip the wait, why the per-visit order cap

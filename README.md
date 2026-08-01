@@ -33,6 +33,21 @@ work. No manual upgrade-planner passes needed.
   orders are still never cancelled. Once swapped, the building is an ordinary
   candidate, raised back up as better stock appears.
 
+- **Space platforms are gardened too.** A platform has no construction bots — the
+  hub builds and upgrades directly from its own inventory — so Quality Gardener
+  treats each platform as its own network, with the hub inventory (cargo bays
+  included) as the supply. Buildings, ghosts, upgrade orders, and modules all get
+  the same treatment as on a planet, and upgrades are only ever ordered against
+  items actually aboard. The one platform-specific twist is deliveries: before
+  adjusting a ghost or order whose quality isn't aboard, the gardener checks
+  what's coming. An item already on its way up (rocket or cargo pod) is always
+  left alone; one covered by an open request — including the hub's automatic
+  "request missing construction materials" system — is given the delivery-wait
+  setting (default 300 s) to arrive first. And a platform in transit never
+  waits: a turret destroyed by asteroids is refilled immediately from whatever
+  is on hand, because a downgrade now beats a hole in the defenses for the rest
+  of the trip.
+
 - **Modules are gardened too.** An installed module with a higher-quality version in
   storage gets swapped by the bots, the displaced module returning to storage — the
   same cascade as buildings. And a module request no bot can fill (the requested
@@ -78,21 +93,25 @@ default, so any combination can be switched off at runtime.
 | Manage factory | on | Upgrade placed buildings and their installed modules toward the best stocked quality |
 | Manage ghosts | on | Retarget ghosts requesting an out-of-stock quality to the best quality on hand |
 | Manage upgrade requests | on | Retarget your starved upgrade orders to the best stocked quality of their target item |
+| Manage space platforms | on | Garden space platforms from the hub inventory; off = planets only |
 | Entities per tick | 1 | Work budget per tick; raise for faster processing at the expense of UPS |
 | Reserve per item | 0 | Spares kept untouched per item-quality |
 | Round delay | 20 s | Rest between rounds so bots can pick up ordered items |
 | Order expiry | 300 s | Cancel the mod's own starved orders after this long out of stock; 0 = never |
+| Space platform delivery wait | 300 s | How long a platform ghost/order waits for a delivery before being adjusted; 0 = adjust immediately |
 
 ## Compatibility
 
 Works with any quality mod — quality chains are walked via the prototype graph, never
-hardcoded.
+hardcoded. Space Age is optional: without it there are no platforms and the platform
+support is simply inert.
 
 The mod keeps almost no state about your base — every round reads the world fresh,
-so there is nothing to get out of sync. The one exception is a small ledger of the
+so there is nothing to get out of sync. The exceptions are a small ledger of the
 upgrade orders the mod itself placed, kept so that only its own marks are ever
-expired; losing it is harmless (those orders simply never expire).
-`/quality-gardener-init` resets the pass cursor and the ledger if you ever want a
+expired (losing it is harmless — those orders simply never expire), and on space
+platforms a table of delivery-wait clocks (losing it just restarts the waits).
+`/quality-gardener-init` resets the pass cursor and both ledgers if you ever want a
 clean restart.
 
 One consequence of statelessness: if you cancel a mark the mod made while the
