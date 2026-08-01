@@ -20,17 +20,20 @@ player-facing intent and behavior.
 - **Every visible mark is demand.** A marked entity — ours from a past round, a
   player's upgrade-planner mark, or another mod's — decrements the supply snapshot
   at its upgrade target and is otherwise skipped.
-- **Only ledgered marks are ever cancelled.** A non-ledgered mark may have its
-  quality *retargeted* under `manage-upgrade-requests` (quality only — the
-  chosen target prototype is sacred), but never cancelled. The order ledger
-  (`storage.order_ledger`, keyed by unit number) is the sole way to tell our
-  marks from a player's; a ledger miss means hands off, so player marks stay
-  untouchable. A ledgered mark is cancelled only when it has outlived
-  `order-expiry-seconds` *and* its target quality is out of stock — a
-  queued-but-stocked order is the bots' business, and an entity re-marked to a
-  different target is dropped from the ledger on sight. Losing the ledger is
-  safe: orphaned marks simply never expire. Still accepted, deliberately: no
-  cancel cooldown and no runtime-state restore; see the decision log.
+- **The order ledger is a cancellation license.** Membership in
+  `storage.order_ledger` (keyed by unit number) records that a mark is ours
+  and when we placed it; cancellation and expiry require membership.
+  Everything else the mod does to marks — demand accounting, quality
+  retargeting under `manage-upgrade-requests` (quality only — the chosen
+  target prototype is sacred) — is ownership-blind and reads the world.
+  Absence means *never cancelled*, not *never touched*: player marks can be
+  quality-retargeted but stay uncancellable forever. A ledgered mark is
+  cancelled only when it has outlived `order-expiry-seconds` *and* its target
+  quality is out of stock — a queued-but-stocked order is the bots' business,
+  and an entity re-marked to a different target is dropped from the ledger on
+  sight. Losing the ledger is safe: orphaned marks simply never expire. Still
+  accepted, deliberately: no cancel cooldown and no runtime-state restore; see
+  the decision log.
 - **Network identity is transient; only snapshots span ticks.** `LuaLogisticNetwork`
   refs and ids invalidate on any merge/split — never store one across a tick
   boundary. Entering a network reads everything needed (bot count, supply,

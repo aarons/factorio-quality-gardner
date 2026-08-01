@@ -125,22 +125,40 @@ Community-reported behavior (treat as true until verified in-game):
 The delivery wait needs "how long has this target been waiting" — a fact the
 world cannot answer, which is exactly the order-ledger test. Add
 `storage.platform_wait_ledger`, keyed by unit number (ghosts have unit
-numbers), holding `{entity, waiting_since_tick}`. An entry is created the
-first time a platform visit finds a target unfulfilled and waiting (rule 3
-below); it is cleared whenever the target is seen stocked or inbound, or the
-entity is gone. Losing the ledger is safe: the clock restarts, which only
-ever means waiting *longer* — the conservative direction.
+numbers), holding `{entity, order_tick, target_name, target_quality}` — the
+same entry shape as the order ledger. An entry is created the first time a
+platform visit finds a target unfulfilled and waiting (rule 3 below); it is
+cleared whenever the target is seen stocked or inbound, or the entity is
+gone. The clock **resets when the observed target no longer matches the
+recorded one** — either field: upgrade marks can be cross-prototype (gun
+turret → laser turret, yellow belt → red belt), so a player re-marking to a
+different prototype at the same quality is a new wait, not a continuation of
+the old one. Losing the ledger is safe: the clock restarts, which only ever
+means waiting *longer* — the conservative direction.
 
 Our own platform orders reuse the existing `order_ledger` unchanged (same
-entry, same expiry, same sweep). The wait ledger shares the entry shape
-(`{entity, tick}`) and the budgeted between-rounds sweep, but **must be a
-separate table**: membership in `order_ledger` is itself the ownership fact
-("a ledger miss means hands off"), and mixing player-mark wait entries into
-it would blur exactly the distinction that invariant protects. One mechanism,
-two tables — the table answers "whose is it," the entry answers "since when."
+entry, same expiry, same sweep). The wait ledger shares the entry shape and
+the budgeted between-rounds sweep — generalize `sweep_ledger_step` to take a
+table and a validity predicate (order ledger: entity valid and still marked;
+wait ledger: entity valid — wait entries attach to ghosts and module-request
+targets, for which `to_be_upgraded()` is meaningless) and run both during the
+rest window under the same budget. But the wait ledger **must be a separate
+table**: the order ledger is a *cancellation license* — membership is itself
+the ownership fact — while the wait ledger is a clock table with no ownership
+meaning at all. Mixing them would turn a structurally-enforced membership
+fact into a field check at every call site. One mechanism, one entry shape,
+two tables — the table answers "what does membership mean," the entry answers
+"since when, for what target."
 
-Document this in CLAUDE.md as an accepted extension of "the ledger records
-only facts the world cannot answer."
+(Optional, for shape parity only: the order ledger may also adopt
+`target_name` alongside `target_quality`. Not needed for correctness — our
+own orders are always same-name and the `entity.name` match check in
+`examine_marked` is sound — but it makes the two entry shapes identical and
+the match check uniform.)
+
+Document this in CLAUDE.md under the cancellation-license framing: both
+ledgers record only facts the world cannot answer; only the order ledger's
+membership carries ownership.
 
 ### Two views of supply, deliberately not merged
 
@@ -174,8 +192,10 @@ order:
    `request_missing_construction_materials` is true (the auto-request section
    can lag a freshly pasted ghost, and per the 2.1.7 bug may never populate):
    run the wait clock; retarget only once
-   `space-platform-delivery-wait-seconds` has elapsed since
-   `waiting_since_tick`. The timeout is the stale-request handling: an item
+   `space-platform-delivery-wait-seconds` has elapsed since the wait entry's
+   `order_tick` — first checking that the entry's recorded `target_name` and
+   `target_quality` still match what the world reports, and resetting the
+   clock if not. The timeout is the stale-request handling: an item
    requested forever that no planet or platform supplies eventually gets
    acted on anyway.
 4. **Deliveries possible but nothing requested and auto-request off** —
@@ -218,7 +238,10 @@ purpose. Planet networks are untouched by all of this (no wait, no ledger).
 5. **Our own orders** (`examine_building`) need no wait: they are placed only
    against spendable stock, ledgered, and expire through the existing
    `order-expiry-seconds` path — which on platforms doubles as the queue-block
-   escape hatch.
+   escape hatch. Note the window: a starved order can wedge the platform's
+   construction queue for up to the full expiry (300 s default). Document a
+   recommendation to lower `order-expiry-seconds` in platform-heavy saves, or
+   revisit with a platform-side cap once the in-game behavior is verified.
 6. **Settings, locale, changelog.** Two new settings as named in Context;
    locale entries in `locale/en/locale.cfg` only; changelog entry.
 7. **Both release lines.** Port to the `2.0` branch as a separate version.
@@ -276,8 +299,9 @@ CLAUDE.md's verified list as it is confirmed.
 
 - `CLAUDE.md` — architecture line ("logistic networks *and space platforms*"),
   design invariants (platform-as-network, the two-views-of-supply rule, the
-  wait ledger as an accepted second ledger, the queue-block hazard), verified
-  API facts (move the platform facts in once confirmed in-game).
+  wait ledger as a clock table under the cancellation-license framing, the
+  queue-block hazard), verified API facts (move the platform facts in once
+  confirmed in-game).
 - `docs/decisions.md` — why deliveries gate retargeting, why in-transit
   platforms skip the wait, why the wait ledger is a separate table from the
   order ledger, why our own orders skip the wait, why the per-visit order cap

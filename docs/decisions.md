@@ -173,3 +173,29 @@ events, and don't add a position cache that would make them relevant again.
 Validation is luacheck via `./validate.sh`, nothing more. Factorio runtime
 behavior can't be meaningfully unit-tested outside the game; in-game
 verification plus the "still unverified" list in `CLAUDE.md` is the process.
+
+## 2026-08-01 — The order ledger reframed as a cancellation license
+
+Upgrade-request provisioning made "a ledger miss means hands off" imprecise:
+the mod now retargets non-ledgered marks (quality only), so absence stopped
+meaning untouchable. Rather than patch the rule with exceptions ("retargeting
+is not cancelling"), the invariant is restated from what it protects:
+**membership in the order ledger is a cancellation license**. The ledger
+records that a mark is ours and when we placed it; cancellation and expiry
+require membership. Everything else — demand accounting, quality retargeting —
+is ownership-blind and reads the world. Absence means *never cancelled*, not
+*never touched*. This is a rewording, not a behavior change; the code was
+already exactly this.
+
+The framing also settles the data-model question raised by plan-005's
+platform wait ledger. That table is not a second ownership registry — it is a
+clock table recording a different world-unanswerable fact (when a target was
+first seen starved), with no ownership meaning. The two tables share one
+entry shape (`{entity, order_tick, target_name, target_quality}` — the
+target fields matter because upgrade marks can be cross-prototype, and a
+player re-marking to a different prototype at the same quality must reset the
+wait clock) and one budgeted sweep mechanism, but stay separate: merging
+them would turn the structurally-enforced membership fact into a per-entry
+field check at every call site, and a row-per-managed-entity table with
+status columns is the retired per-entity state's shape. One mechanism, one
+entry shape, two tables — the table answers "what does membership mean."

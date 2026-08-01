@@ -14,10 +14,11 @@ state is the order ledger, recording the two facts the world cannot answer:
 that a mark is ours, and when we placed it. A ledgered mark that has outlived
 the order-expiry setting with its target quality out of stock is starved —
 biter damage forced rebuilds, or player upgrades drained the stock it counted
-on — and is cancelled so the entity becomes an ordinary candidate again. A
-ledger miss means hands off: player marks are never touched, and a lost
-ledger just means existing orders never expire. Orphaned entries are pruned
-by a budgeted sweep between rounds.
+on — and is cancelled so the entity becomes an ordinary candidate again. The
+ledger is a cancellation license: expiry and cancellation require membership,
+so player marks can never be cancelled, and a lost ledger just means existing
+orders never expire. Orphaned entries are pruned by a budgeted sweep between
+rounds.
 
 Ghosts are scanned too: one requesting a stocked quality just consumes supply
 as demand; one requesting an unstocked quality is retargeted to the best
