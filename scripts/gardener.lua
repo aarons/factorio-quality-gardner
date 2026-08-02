@@ -27,9 +27,8 @@ end
 -- Network entry -------------------------------------------------------------
 
 -- Fold a contents array (network get_contents or hub inventory) into
--- supply[item_name][tier] = count, reserve subtracted.
+-- supply[item_name][tier] = count.
 local function read_supply(contents)
-  local reserve = settings.global["reserve-per-item"].value
   local supply = {}
   for _, row in ipairs(contents) do
     local tier = qualities.tier_of(row.quality)
@@ -39,7 +38,17 @@ local function read_supply(contents)
         by_tier = {}
         supply[row.name] = by_tier
       end
-      by_tier[tier] = (by_tier[tier] or -reserve) + row.count
+      by_tier[tier] = (by_tier[tier] or 0) + row.count
+    end
+  end
+  -- The player's reserve comes off every stocked tier up front; from here
+  -- on, supply means spendable stock.
+  local reserve = settings.global["reserve-per-item"].value
+  if reserve > 0 then
+    for _, by_tier in pairs(supply) do
+      for tier in pairs(by_tier) do
+        by_tier[tier] = by_tier[tier] - reserve
+      end
     end
   end
   return supply
@@ -177,6 +186,18 @@ end
 
 -- Matching -------------------------------------------------------------------
 
+-- The supply idiom: stock_count answers availability, stock_consume books
+-- demand. Booked stock may go negative — every mark, ghost, and request row
+-- books its full need, so later orders never count on supply already
+-- claimed. Only positive counts read as available.
+local function stock_count(by_tier, tier)
+  return by_tier and by_tier[tier] or 0
+end
+
+local function stock_consume(by_tier, tier, count)
+  by_tier[tier] = (by_tier[tier] or 0) - count
+end
+
 -- Highest tier with stock remaining, or nil. Supply is decremented in place,
 -- so the snapshot itself is the availability cache.
 local function best_stocked_tier(by_tier)
@@ -246,9 +267,8 @@ local function examine_ghost(network_snapshot, entity)
   if not tier then return end
 
   local by_tier = network_snapshot.supply[item_name]
-  local stock = by_tier and by_tier[tier]
-  if stock and stock > 0 then
-    by_tier[tier] = stock - 1
+  if stock_count(by_tier, tier) > 0 then
+    stock_consume(by_tier, tier, 1)
     if network_snapshot.platform then
       -- Target seen stocked: any wait clock is stale.
       storage.platform_wait_ledger[entity.unit_number] = nil
@@ -275,7 +295,7 @@ local function examine_ghost(network_snapshot, entity)
     force = entity.force,
   }
   if ok then
-    by_tier[best] = by_tier[best] - 1
+    stock_consume(by_tier, best, 1)
     network_snapshot.order_budget = network_snapshot.order_budget - 1
     if network_snapshot.platform then
       storage.platform_wait_ledger[entity.unit_number] = nil
@@ -303,7 +323,7 @@ local function examine_building(network_snapshot, entity)
     force = entity.force,
   }
   if ok then
-    by_tier[target_tier] = by_tier[target_tier] - 1
+    stock_consume(by_tier, target_tier, 1)
     network_snapshot.order_budget = network_snapshot.order_budget - 1
     storage.order_ledger[entity.unit_number] = {
       entity = entity,
@@ -355,9 +375,8 @@ local function examine_proxy(network_snapshot, proxy)
     if tier then
       local by_tier = network_snapshot.supply[item_name]
       local count = plan_module_count(plan)
-      local stock = by_tier and by_tier[tier]
-      if stock and stock > 0 then
-        by_tier[tier] = stock - count
+      if stock_count(by_tier, tier) > 0 then
+        stock_consume(by_tier, tier, count)
       elseif network_snapshot.manage_factory
         and count > 0 and count <= network_snapshot.order_budget
         and storage.config.module_item[item_name] then
@@ -368,7 +387,7 @@ local function examine_proxy(network_snapshot, proxy)
         local best = retarget_allowed and by_tier and best_stocked_tier(by_tier)
         if best then
           plan.id.quality = qualities.at(best).name
-          by_tier[best] = by_tier[best] - count
+          stock_consume(by_tier, best, count)
           network_snapshot.order_budget = network_snapshot.order_budget - count
           changed = true
         end
@@ -426,7 +445,7 @@ local function examine_modules(network_snapshot, entity)
             id = {name = stack.name, quality = qualities.at(best).name},
             items = {in_inventory = {position}},
           }
-          by_tier[best] = by_tier[best] - 1
+          stock_consume(by_tier, best, 1)
           network_snapshot.order_budget = network_snapshot.order_budget - 1
         end
       end
@@ -480,8 +499,7 @@ local function examine_marked(network_snapshot, entity)
     and storage.config.placing_item_name[target_prototype.name]
   local by_tier = target_item and network_snapshot.supply[target_item]
   local target_tier = target_quality and qualities.tier_of(target_quality.name)
-  local stock = by_tier and target_tier and by_tier[target_tier]
-  local starved = not (stock and stock > 0)
+  local starved = not (target_tier and stock_count(by_tier, target_tier) > 0)
 
   local entry, cancelled =
     reconcile_order_ledger(entity, target_prototype, target_quality, starved)
@@ -505,7 +523,7 @@ local function examine_marked(network_snapshot, entity)
         force = entity.force,
       }
       if ok then
-        by_tier[best] = by_tier[best] - 1
+        stock_consume(by_tier, best, 1)
         network_snapshot.order_budget = network_snapshot.order_budget - 1
         if network_snapshot.platform then
           storage.platform_wait_ledger[entity.unit_number] = nil
@@ -517,7 +535,7 @@ local function examine_marked(network_snapshot, entity)
 
   -- Demand accounting: an existing mark consumes supply at its target.
   if by_tier and target_tier then
-    by_tier[target_tier] = (by_tier[target_tier] or 0) - 1
+    stock_consume(by_tier, target_tier, 1)
   end
 end
 
