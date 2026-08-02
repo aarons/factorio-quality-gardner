@@ -17,6 +17,9 @@ Date: 01. 08. 2026
       the trip.
     - New settings: Manage Space Platforms (on by default; turn off to garden planets only) and
       Space Platform Delivery Wait (0 adjusts immediately, like on a planet).
+  Optimizations:
+    - Networks and platforms are enumerated once per scan round instead of once per network
+      visit; a network changing mid-round is picked up at the next round.
 ---------------------------------------------------------------------------------------------------
 Version: 1.2.0
 Date: 30. 07. 2026
