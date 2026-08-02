@@ -13,7 +13,7 @@ local gardener = {}
 gardener.PASS_INTERVAL_TICKS = 1
 
 function gardener.initialize_storage()
-  storage.pass = {cursor = 1}
+  storage.pass = {round_cursor = 1}
   storage.order_ledger = {}
   storage.platform_wait_ledger = {}
   -- Storage keys from retired architectures; nil them so old saves migrate.
@@ -79,9 +79,9 @@ local function new_network_snapshot(toggles, surface_index, supply, order_budget
     supply = supply,
     order_budget = order_budget,
     cell_count = cell_count,
-    cell_index = 0,
+    cell_cursor = 1,
     entities = nil,
-    entity_index = 1,
+    entity_cursor = 1,
     manage_factory = toggles.manage_factory,
     manage_ghosts = toggles.manage_ghosts,
     manage_upgrade_requests = toggles.manage_upgrade_requests,
@@ -579,26 +579,66 @@ end
 
 -- The pass ------------------------------------------------------------------
 
--- Slots are re-enumerated fresh whenever a new network is needed; only the
--- integer cursor persists, so a mid-round merge or split at worst skips or
--- repeats a network for one round. Without Space Age the platforms dict is
--- empty.
-local function collect_network_slots()
-  local slots = {}
+-- The round's visit queue, enumerated once when a round starts and held in
+-- storage as plain data: networks as an integer index into their surface's
+-- array (live references are never stored — see enter_round_slot), platforms
+-- by their stable dictionary index. A mid-round merge or split at worst
+-- skips or repeats a network for one round; networks born mid-round wait
+-- for the next. Without Space Age the platforms dict is empty.
+local function collect_round_queue()
+  local queue = {}
   for surface_name, networks in pairs(game.forces.player.logistic_networks) do
-    local surface = game.surfaces[surface_name]
-    if surface then
-      for _, network in pairs(networks) do
-        slots[#slots + 1] = {network = network, surface_index = surface.index}
+    if game.surfaces[surface_name] then
+      for network_index in pairs(networks) do
+        queue[#queue + 1] =
+          {surface_name = surface_name, network_index = network_index}
       end
     end
   end
   if settings.global["manage-space-platforms"].value then
     for platform_index in pairs(game.forces.player.platforms) do
-      slots[#slots + 1] = {platform_index = platform_index}
+      queue[#queue + 1] = {platform_index = platform_index}
     end
   end
-  return slots
+  return queue
+end
+
+-- Resolve one queue slot to a snapshot, or nil to skip it. Networks are
+-- re-fetched fresh by surface and index in the entry tick; a slot that no
+-- longer resolves — surface gone, network merged away — is skipped, and
+-- enter_network's validity check guards the rest.
+local function enter_round_slot(slot)
+  if slot.platform_index then
+    return enter_platform(slot.platform_index)
+  end
+  local surface = game.surfaces[slot.surface_name]
+  if not surface then return nil end
+  local networks = game.forces.player.logistic_networks[slot.surface_name]
+  local network = networks and networks[slot.network_index]
+  if not network then return nil end
+  return enter_network(network, surface.index)
+end
+
+-- One budgeted step of round advancement: build the queue when a new round
+-- starts, enter the slot at the cursor, or — past the end — close the
+-- round: rest so bots can collect ordered items, and sweep the ledgers
+-- during the rest.
+local function advance_round_step(pass)
+  if not pass.round_queue then
+    pass.round_queue = collect_round_queue()
+  end
+  if pass.round_cursor > #pass.round_queue then
+    pass.round_queue = nil
+    pass.round_cursor = 1
+    pass.resume_tick = game.tick
+      + math.floor(settings.global["round-delay-seconds"].value * 60)
+    pass.sweeping = "order_ledger"
+    pass.sweep_cursor = nil
+    return
+  end
+  local slot = pass.round_queue[pass.round_cursor]
+  pass.round_cursor = pass.round_cursor + 1
+  pass.network_snapshot = enter_round_slot(slot)
 end
 
 -- Scan one construction cell's area — or a platform's whole surface — for
@@ -609,7 +649,7 @@ local function scan_cell(network_snapshot)
   -- Platforms carry no cell boxes; a nil area scans the whole (small,
   -- bounded) surface.
   local cells = network_snapshot.cells
-  local area = cells and cells[network_snapshot.cell_index]
+  local area = cells and cells[network_snapshot.cell_cursor]
   return surface.find_entities_filtered{
     area = area,
     force = "player",
@@ -659,57 +699,47 @@ function gardener.on_pass()
   while budget > 0 do
     local network_snapshot = pass.network_snapshot
     if pass.sweeping then
-      -- Between rounds: sweep the ledgers during the rest window.
+      -- Sweeping: the between-rounds ledger sweep, running during the rest.
+      -- Checked before resting so a ledger outlasting the delay pushes the
+      -- next round back.
       budget = budget - 1
       sweep_ledger_step(pass)
     elseif pass.resume_tick then
+      -- Resting: the between-rounds pickup window. This check must stay
+      -- inside the loop, after sweeping — the sweep hands off to resting
+      -- mid-invocation, and any leftover budget is deliberately discarded.
       if game.tick < pass.resume_tick then return end
       pass.resume_tick = nil
     elseif not network_snapshot then
-      -- One iteration: advance the cursor and enter the next network
+      -- Advancing the round: enter the next slot or close the round.
       budget = budget - 1
-      local slots = collect_network_slots()
-      if pass.cursor > #slots then
-        -- Round complete: rest so bots can collect ordered items.
-        pass.cursor = 1
-        pass.resume_tick = game.tick
-          + math.floor(settings.global["round-delay-seconds"].value * 60)
-        pass.sweeping = "order_ledger"
-        pass.sweep_cursor = nil
-      else
-        local slot = slots[pass.cursor]
-        pass.cursor = pass.cursor + 1
-        if slot.platform_index then
-          pass.network_snapshot = enter_platform(slot.platform_index)
-        else
-          pass.network_snapshot = enter_network(slot.network, slot.surface_index)
-        end
-      end
-    elseif network_snapshot.entities and network_snapshot.entity_index <= #network_snapshot.entities then
+      advance_round_step(pass)
+    elseif network_snapshot.entities
+      and network_snapshot.entity_cursor <= #network_snapshot.entities then
+      -- Examining: one scanned entity per step.
       budget = budget - 1
-      local entity = network_snapshot.entities[network_snapshot.entity_index]
-      network_snapshot.entity_index = network_snapshot.entity_index + 1
+      local entity = network_snapshot.entities[network_snapshot.entity_cursor]
+      network_snapshot.entity_cursor = network_snapshot.entity_cursor + 1
       examine(network_snapshot, entity)
       if network_snapshot.order_budget <= 0 then
         -- Order budget spent: abandon the rest of this network
         pass.network_snapshot = nil
       end
+    elseif network_snapshot.cell_cursor > network_snapshot.cell_count then
+      -- Cells exhausted: the visit is complete.
+      pass.network_snapshot = nil
+    elseif scanned_cell_this_invocation then
+      -- At most one scan burst per invocation; resume at this cell next time.
+      return
     else
-      network_snapshot.cell_index = network_snapshot.cell_index + 1
-      if network_snapshot.cell_index > network_snapshot.cell_count then
+      -- Scanning: one cell's find_entities_filtered burst.
+      scanned_cell_this_invocation = true
+      budget = budget - 1
+      network_snapshot.entities = scan_cell(network_snapshot)
+      network_snapshot.cell_cursor = network_snapshot.cell_cursor + 1
+      network_snapshot.entity_cursor = 1
+      if not network_snapshot.entities then
         pass.network_snapshot = nil
-      elseif scanned_cell_this_invocation then
-        -- At most one scan burst per invocation; resume here next time
-        network_snapshot.cell_index = network_snapshot.cell_index - 1
-        return
-      else
-        scanned_cell_this_invocation = true
-        budget = budget - 1
-        network_snapshot.entities = scan_cell(network_snapshot)
-        network_snapshot.entity_index = 1
-        if not network_snapshot.entities then
-          pass.network_snapshot = nil
-        end
       end
     end
   end

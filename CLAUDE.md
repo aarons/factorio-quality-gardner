@@ -68,7 +68,10 @@ logistic network and space platform fresh and orders upgrades on the spot.*
   boundary. Entering a network reads everything needed (bot count, supply,
   construction cell boxes) from the live ref in that single tick; the rest of the
   visit runs from the plain-data snapshot, which can only go stale, never invalid.
-  Only the integer cursor persists between network visits.
+  Between network visits only plain data persists: the round queue of
+  surface-name/index descriptors, enumerated once per round, and the integer
+  cursor — each slot is re-resolved to a live network at entry, so a stale
+  slot at worst skips or repeats a network for one round.
 - **Pass state lives in `storage`, and abandoning it is always safe.** Cross-tick
   state in locals would desync a multiplayer join, so the resumable pass is plain
   data in `storage.pass`. Init and configuration changes reset it; a restarted pass

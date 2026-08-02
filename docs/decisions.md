@@ -275,3 +275,26 @@ the proxy, its target recorded from the first starved row, all starved rows
 retargeted together when it elapses. A per-row clock would need a composite
 key and buys nothing — multiple simultaneously-starved rows on one proxy are
 rare, and the cost of imprecision is only waiting longer.
+
+## 2026-08-01 — Round queue enumerated once per round
+
+The pass previously re-enumerated every logistic network and platform each
+time it needed the next slot — O(n²) enumerations per round, bought nothing:
+the freshness only mattered at entry, and entry re-reads the world anyway.
+The queue is now built once when a round starts and stored in `storage.pass`
+as plain descriptors (surface name plus integer index into that surface's
+network array; platforms by their stable dictionary index), re-resolved to a
+live reference in the entry tick. Factorio is deterministic, so the index
+only shifts when the networks themselves change; a slot that resolves to a
+different network — or to nothing — at worst skips or repeats a network for
+one round, the tolerance the cursor design already accepted.
+
+Two small observable consequences, both accepted: mid-round network changes
+now wait for the next round's enumeration rather than the next slot, and
+`manage-space-platforms` is read at queue-build time, so flipping it takes
+effect at the next round boundary instead of mid-round.
+
+The same change funneled platform wait-clock clearing through one helper
+(`clear_platform_wait`) and gave `platform_retarget_allowed` an off-platform
+early return, so the examine arms read as policy rather than ledger
+bookkeeping — useful groundwork if the wait mechanism is revisited.
