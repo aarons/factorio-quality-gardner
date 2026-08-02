@@ -217,6 +217,10 @@ end
 -- A true return does not clear the entry — the caller clears after acting —
 -- so an elapsed clock stays elapsed and acts the moment stock appears.
 local function platform_retarget_allowed(network_snapshot, entity, target_name, target_quality_name)
+  -- Trivially allowed off-platform. This guard must come first: planet
+  -- snapshots carry none of the delivery-wait fields read below.
+  if not network_snapshot.platform then return true end
+
   local wait_ledger = storage.platform_wait_ledger
   local unit_number = entity.unit_number
 
@@ -258,6 +262,17 @@ local function platform_retarget_allowed(network_snapshot, entity, target_name, 
   return true
 end
 
+-- Bookkeeping counterpart to the wait rules above: drop an entity's wait
+-- clock, called when its target is seen stocked or after acting on it. An
+-- allowed retarget alone never clears — an elapsed clock stays elapsed
+-- until the pass acts. Off-platform this is a no-op: planet passes never
+-- touch the wait ledger.
+local function clear_platform_wait(network_snapshot, unit_number)
+  if network_snapshot.platform then
+    storage.platform_wait_ledger[unit_number] = nil
+  end
+end
+
 -- A ghost whose exact quality is stocked is left for the bots (counted as
 -- demand); otherwise it is retargeted to the best stocked tier of its item.
 local function examine_ghost(network_snapshot, entity)
@@ -269,10 +284,8 @@ local function examine_ghost(network_snapshot, entity)
   local by_tier = network_snapshot.supply[item_name]
   if stock_count(by_tier, tier) > 0 then
     stock_consume(by_tier, tier, 1)
-    if network_snapshot.platform then
-      -- Target seen stocked: any wait clock is stale.
-      storage.platform_wait_ledger[entity.unit_number] = nil
-    end
+    -- Target seen stocked: any wait clock is stale.
+    clear_platform_wait(network_snapshot, entity.unit_number)
     return
   end
 
@@ -281,9 +294,8 @@ local function examine_ghost(network_snapshot, entity)
 
   -- The wait rules run before the stock check so the clock starts at first
   -- starvation, even with nothing aboard to retarget to.
-  if network_snapshot.platform
-    and not platform_retarget_allowed(network_snapshot, entity,
-      entity.ghost_name, entity.quality.name) then
+  if not platform_retarget_allowed(network_snapshot, entity,
+    entity.ghost_name, entity.quality.name) then
     return
   end
 
@@ -297,9 +309,7 @@ local function examine_ghost(network_snapshot, entity)
   if ok then
     stock_consume(by_tier, best, 1)
     network_snapshot.order_budget = network_snapshot.order_budget - 1
-    if network_snapshot.platform then
-      storage.platform_wait_ledger[entity.unit_number] = nil
-    end
+    clear_platform_wait(network_snapshot, entity.unit_number)
   end
 end
 
@@ -365,9 +375,10 @@ end
 local function examine_proxy(network_snapshot, proxy)
   local plans = proxy.insert_plan
   local changed = false
-  -- nil until the first starved module row runs the wait rules; nil at the
-  -- end means no row was starved.
-  local retarget_allowed
+  -- The wait rules run once per proxy, against the first starved module
+  -- row's target; the verdict is reused for the rest of the visit.
+  local starved_module_row_seen = false
+  local retarget_allowed = false
   for _, plan in ipairs(plans) do
     local item_name = name_of(plan.id.name)
     local quality_name = name_of(plan.id.quality) or "normal"
@@ -380,9 +391,10 @@ local function examine_proxy(network_snapshot, proxy)
       elseif network_snapshot.manage_factory
         and count > 0 and count <= network_snapshot.order_budget
         and storage.config.module_item[item_name] then
-        if retarget_allowed == nil then
-          retarget_allowed = not network_snapshot.platform
-            or platform_retarget_allowed(network_snapshot, proxy, item_name, quality_name)
+        if not starved_module_row_seen then
+          starved_module_row_seen = true
+          retarget_allowed =
+            platform_retarget_allowed(network_snapshot, proxy, item_name, quality_name)
         end
         local best = retarget_allowed and by_tier and best_stocked_tier(by_tier)
         if best then
@@ -397,9 +409,9 @@ local function examine_proxy(network_snapshot, proxy)
   if changed then
     proxy.insert_plan = plans
   end
-  if network_snapshot.platform and (changed or retarget_allowed == nil) then
+  if changed or not starved_module_row_seen then
     -- Acted, or no starved module row this visit: any wait clock is stale.
-    storage.platform_wait_ledger[proxy.unit_number] = nil
+    clear_platform_wait(network_snapshot, proxy.unit_number)
   end
 end
 
@@ -505,17 +517,16 @@ local function examine_marked(network_snapshot, entity)
     reconcile_order_ledger(entity, target_prototype, target_quality, starved)
   if cancelled then return end
 
-  if network_snapshot.platform and not starved then
+  if not starved then
     -- Target seen stocked: any wait clock is stale.
-    storage.platform_wait_ledger[entity.unit_number] = nil
+    clear_platform_wait(network_snapshot, entity.unit_number)
   end
 
   if network_snapshot.manage_upgrade_requests
     and not entry and starved
     and target_prototype and target_item and target_tier
-    and (not network_snapshot.platform
-      or platform_retarget_allowed(network_snapshot, entity,
-        target_prototype.name, target_quality.name)) then
+    and platform_retarget_allowed(network_snapshot, entity,
+      target_prototype.name, target_quality.name) then
     local best = by_tier and best_stocked_tier(by_tier)
     if best then
       local ok = entity.order_upgrade{
@@ -525,9 +536,7 @@ local function examine_marked(network_snapshot, entity)
       if ok then
         stock_consume(by_tier, best, 1)
         network_snapshot.order_budget = network_snapshot.order_budget - 1
-        if network_snapshot.platform then
-          storage.platform_wait_ledger[entity.unit_number] = nil
-        end
+        clear_platform_wait(network_snapshot, entity.unit_number)
         return
       end
     end
