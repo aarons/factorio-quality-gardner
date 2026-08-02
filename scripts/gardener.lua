@@ -147,9 +147,8 @@ local function enter_platform(platform_index)
   end
 
   -- Spendable stock is hub_main only (cargo bays extend it; hub_trash is
-  -- items leaving). An order for an item the hub doesn't hold blocks the
-  -- platform's entire serial construction queue, so orders are placed only
-  -- against stock — never against inbound or requested items.
+  -- items leaving). Orders are placed only against existing stock
+  -- never against inbound or requested items.
   local hub_inventory = hub.get_inventory(defines.inventory.hub_main)
   if not hub_inventory then return nil end
   local point = hub.get_logistic_point(
