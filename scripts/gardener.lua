@@ -54,18 +54,48 @@ local function read_supply(contents)
   return supply
 end
 
+-- The three manage-* toggles, snapshotted for one visit; nil when all are
+-- off and the visit should be skipped.
+local function read_manage_toggles()
+  local toggles = {
+    manage_factory = settings.global["manage-factory"].value,
+    manage_ghosts = settings.global["manage-ghosts"].value,
+    manage_upgrade_requests = settings.global["manage-upgrade-requests"].value,
+  }
+  if not (toggles.manage_factory or toggles.manage_ghosts
+    or toggles.manage_upgrade_requests) then
+    return nil
+  end
+  return toggles
+end
+
+-- The snapshot scaffold shared by networks and platforms: the scan-cursor
+-- start state, the snapshotted toggles, and the fields every visit carries.
+-- Callers append their own fields (network: cells; platform: the
+-- delivery-wait data and the platform flag).
+local function new_network_snapshot(toggles, surface_index, supply, order_budget, cell_count)
+  return {
+    surface_index = surface_index,
+    supply = supply,
+    order_budget = order_budget,
+    cell_count = cell_count,
+    cell_index = 0,
+    entities = nil,
+    entity_index = 1,
+    manage_factory = toggles.manage_factory,
+    manage_ghosts = toggles.manage_ghosts,
+    manage_upgrade_requests = toggles.manage_upgrade_requests,
+  }
+end
+
 -- Enter one network: read everything needed from the live reference in this
 -- single tick (the reference is never carried forward). Returns the plain-data
 -- work state, or nil to skip the network.
 local function enter_network(network, surface_index)
   if not network.valid then return nil end
 
-  local manage_factory = settings.global["manage-factory"].value
-  local manage_ghosts = settings.global["manage-ghosts"].value
-  local manage_upgrade_requests = settings.global["manage-upgrade-requests"].value
-  if not (manage_factory or manage_ghosts or manage_upgrade_requests) then
-    return nil
-  end
+  local toggles = read_manage_toggles()
+  if not toggles then return nil end
 
   local bot_headroom = network.available_construction_robots
   if bot_headroom == 0 then return nil end
@@ -92,18 +122,10 @@ local function enter_network(network, surface_index)
   end
   if #cells == 0 then return nil end
 
-  return {
-    surface_index = surface_index,
-    supply = supply,
-    order_budget = bot_headroom,
-    cells = cells,
-    cell_index = 0,
-    entities = nil,
-    entity_index = 1,
-    manage_factory = manage_factory,
-    manage_ghosts = manage_ghosts,
-    manage_upgrade_requests = manage_upgrade_requests,
-  }
+  local snapshot =
+    new_network_snapshot(toggles, surface_index, supply, bot_headroom, #cells)
+  snapshot.cells = cells
+  return snapshot
 end
 
 -- What is physically en route to the hub (rockets and platform-to-platform
@@ -148,12 +170,8 @@ local function enter_platform(platform_index)
   local hub = platform.hub
   if not (hub and hub.valid) then return nil end
 
-  local manage_factory = settings.global["manage-factory"].value
-  local manage_ghosts = settings.global["manage-ghosts"].value
-  local manage_upgrade_requests = settings.global["manage-upgrade-requests"].value
-  if not (manage_factory or manage_ghosts or manage_upgrade_requests) then
-    return nil
-  end
+  local toggles = read_manage_toggles()
+  if not toggles then return nil end
 
   -- Spendable stock is hub_main only (cargo bays extend it; hub_trash is
   -- items leaving). Orders are placed only against existing stock
@@ -163,25 +181,16 @@ local function enter_platform(platform_index)
   local point = hub.get_logistic_point(
     defines.logistic_member_index.space_platform_hub_requester)
 
-  return {
-    surface_index = surface.index,
-    platform = true,
-    supply = read_supply(hub_inventory.get_contents()),
-    -- No bots, no cap: stock alone bounds orders on a platform.
-    order_budget = math.huge,
-    -- Platforms have no coverage cells; one whole-surface scan stands in.
-    cells = {"whole-surface"},
-    cell_index = 0,
-    entities = nil,
-    entity_index = 1,
-    manage_factory = manage_factory,
-    manage_ghosts = manage_ghosts,
-    manage_upgrade_requests = manage_upgrade_requests,
-    inbound = read_platform_inbound(point),
-    requested = read_platform_requests(point),
-    auto_request = hub.request_missing_construction_materials,
-    deliveries_possible = platform.space_location ~= nil,
-  }
+  -- No bots, no cap: stock alone bounds orders on a platform. Platforms
+  -- also have no coverage cells; one whole-surface scan stands in.
+  local snapshot = new_network_snapshot(toggles, surface.index,
+    read_supply(hub_inventory.get_contents()), math.huge, 1)
+  snapshot.platform = true
+  snapshot.inbound = read_platform_inbound(point)
+  snapshot.requested = read_platform_requests(point)
+  snapshot.auto_request = hub.request_missing_construction_materials
+  snapshot.deliveries_possible = platform.space_location ~= nil
+  return snapshot
 end
 
 -- Matching -------------------------------------------------------------------
@@ -597,8 +606,10 @@ end
 local function scan_cell(network_snapshot)
   local surface = game.get_surface(network_snapshot.surface_index)
   if not surface then return nil end
-  local area = network_snapshot.cells[network_snapshot.cell_index]
-  if area == "whole-surface" then area = nil end
+  -- Platforms carry no cell boxes; a nil area scans the whole (small,
+  -- bounded) surface.
+  local cells = network_snapshot.cells
+  local area = cells and cells[network_snapshot.cell_index]
   return surface.find_entities_filtered{
     area = area,
     force = "player",
@@ -685,7 +696,7 @@ function gardener.on_pass()
       end
     else
       network_snapshot.cell_index = network_snapshot.cell_index + 1
-      if network_snapshot.cell_index > #network_snapshot.cells then
+      if network_snapshot.cell_index > network_snapshot.cell_count then
         pass.network_snapshot = nil
       elseif scanned_cell_this_invocation then
         -- At most one scan burst per invocation; resume here next time
