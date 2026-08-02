@@ -1,8 +1,7 @@
 # Quality Gardener
 
-Factorio 2.1 mod: when higher-quality versions of placed buildings sit in a logistic
-network (or a space platform's hub), lower-quality placed buildings there are marked
-for upgrade so construction bots — or the hub — swap them out.
+Factorio 2.1 mod: buildings and ghosts in a factory are upgraded
+to higher-quality versions when they are available in storage.
 
 The architecture in one line: *no entity events and, except for the two
 ledgers, no per-entity state — a round-robin, budgeted scan pass reads each
@@ -23,24 +22,16 @@ logistic network and space platform fresh and orders upgrades on the spot.*
   at its upgrade target and is otherwise skipped.
 - **The order ledger is a cancellation license.** Membership in
   `storage.order_ledger` (keyed by unit number) records that a mark is ours
-  and when we placed it; cancellation and expiry require membership.
-  Everything else the mod does to marks — demand accounting, quality
-  retargeting under `manage-upgrade-requests` (quality only — the chosen
-  target prototype is sacred) — is ownership-blind and reads the world.
-  Absence means *never cancelled*, not *never touched*: player marks can be
-  quality-retargeted but stay uncancellable forever. A ledgered mark is
+  and when we placed it. Everything else the mod does is ownership-blind
+  and reads the world. Absence from the ledger means never cancelled; player
+  marks can be quality-retargeted but stay uncancellable forever. A ledgered mark is
   cancelled only when it has outlived `order-expiry-seconds` *and* its target
-  quality is out of stock — a queued-but-stocked order is the bots' business,
-  and an entity re-marked to a different target is dropped from the ledger on
-  sight. Losing the ledger is safe: orphaned marks simply never expire. Still
-  accepted, deliberately: no cancel cooldown and no runtime-state restore; see
-  the decision log.
+  quality is out of stock — a queued-but-stocked order is the bots' business.
+  Losing the ledger is safe: orphaned marks simply never expire.
   The platform wait ledger (`storage.platform_wait_ledger`, swept by the same
   between-rounds mechanism) is *not* a second ownership registry — it is a
   clock table with no ownership meaning, answering only "since when has this
-  target been waiting." Losing it restarts clocks, which only ever means
-  waiting longer — the conservative direction. One mechanism, two tables: the
-  table answers "what does membership mean."
+  target been waiting."
 - **A space platform is its own network.** Platforms have no logistic network
   and no bots — the hub auto-builds ghosts, upgrades, and module requests from
   its own inventory. Under `manage-space-platforms`, each platform is visited
@@ -48,17 +39,12 @@ logistic network and space platform fresh and orders upgrades on the spot.*
   it, `hub_trash` is items leaving and excluded), coverage is one
   whole-surface scan (platforms are small and bounded), and orders are
   uncapped — there are no bots to meter, so only-order-against-stock is the
-  only bound. Platform slots carry only the force's platform index — the
-  platform is re-fetched at entry, never stored.
+  only bound.
 - **Two views of platform supply, deliberately not merged.** Spendable stock
   (hub contents, reserve subtracted) is the only thing orders are placed
-  against. Never order against an inbound or requested item: an upgrade order
-  whose item is absent from the hub blocks the platform's *entire* serial
-  construction queue (community-reported, 2.0.72 dev-confirmed), so
-  only-order-against-stock is safety-critical on platforms, with
-  `order-expiry-seconds` as the queue-block escape hatch. Pending fulfillment
-  (`targeted_items_deliver`, outstanding request filters) is only ever a
-  reason to *wait* before retargeting, never to order.
+  against. Never order against an inbound or requested item as it is not
+  yet available to build with, `order-expiry-seconds` is the queue-block
+  escape hatch.
 - **Platform provisioning waits for deliveries.** Items can be on order from
   the planet below or another platform, and a naive retarget would orphan the
   delivery the player is waiting on. The three retargeting arms (ghosts,

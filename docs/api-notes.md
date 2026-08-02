@@ -3,6 +3,11 @@
 Verified Factorio API facts and the in-game verification backlog. Consult
 before touching an API call; don't re-derive a fact recorded here.
 
+The default assumption is that the engine behaves sanely — script calls that
+mirror the upgrade planner do what the planner does. Record only facts that
+are surprising, version-dependent, or oddly shaped; routine engine behavior
+does not need a backlog entry.
+
 ## Verified
 
 - `LuaLogisticNetwork.get_contents(member?)` — `member` is optional (`"storage"` or
@@ -13,6 +18,12 @@ before touching an API call; don't re-derive a fact recorded here.
   quality-only upgrades; `get_upgrade_target()` returns (prototype, quality).
 - `LuaEntity.cancel_upgrade(force, player?)` returns a boolean — true when a
   pending upgrade was cancelled.
+- Planner-equivalent behavior confirmed in-game, recorded once so it stays out
+  of the backlog: construction bots pull upgrade items from network supply;
+  `order_upgrade` on an entity-ghost applies instantly and supports quality
+  downgrades; `order_upgrade` on an already-marked entity replaces the
+  existing mark's target in place; `cancel_upgrade` on an order whose item a
+  bot is already carrying recalls the bot and returns the item to storage.
 - `LuaLogisticNetwork.available_construction_robots` — read-only uint32, "number of
   construction robots available for a job" (idle bots; busy ones self-exclude).
 - `"not-upgradable"` is an `EntityPrototypeFlag` ("can't be selected by the upgrade
@@ -91,41 +102,19 @@ before touching an API call; don't re-derive a fact recorded here.
   - `order_upgrade`, `to_be_upgraded()`, `cancel_upgrade`,
     item-request-proxies, and `find_entities_filtered` are all
     surface-agnostic — the matching engine ports unchanged.
+  - The platform services scripted upgrade marks and item-request-proxies
+    from hub inventory, and construction is effectively immediate once
+    materials are aboard.
+  - The hub builds its queue serially, so an order whose item is not aboard
+    holds the queue behind it. Long-standing engine behavior, accepted as-is
+    — only-order-against-stock (with order expiry as the escape hatch) is
+    the whole accommodation; the mod is not in the business of working
+    around it further.
 
 ## Still unverified in-game
 
 Verify each, then move it up into the verified list.
 
-- That construction bots pull upgrade items from network supply as expected.
-  If orders stall despite stock, check this first.
-- Ghost provisioning: that `order_upgrade` on an entity-ghost applies
-  instantly (upgrade-planner-on-ghost behavior), preserves ghost settings and
-  `item_requests`, and supports quality downgrades.
-- Module provisioning: that writing `insert_plan` on a dispatched proxy
-  re-issues bot orders cleanly, and that a removal and insert targeting the
-  same slot resolve pickup-before-delivery (vanilla's
-  upgrade-planner-on-modules does exactly this, but it's undocumented).
-- Upgrade-request provisioning: that `order_upgrade` on an already-marked
-  entity replaces the existing mark's target in place (upgrade-planner re-run
-  behavior) rather than being rejected.
-- Order expiry: that `cancel_upgrade` on an order whose item a bot is already
-  carrying recalls the bot and returns the item to storage cleanly (rare with
-  the 300 s default expiry, and self-correcting either way — the next round
-  re-orders).
-- Space platforms (community-reported, treat as true until verified; the
-  checklist lives in `plans/plan-005.md`):
-  - The platform services scripted upgrade marks and item-request-proxies from
-    hub inventory (2.0.72 forum thread with dev reply).
-  - An upgrade order whose item is absent from the hub **blocks the platform's
-    entire construction queue** (same thread) — why only-order-against-stock
-    is safety-critical there.
-  - Retargeting ghosts on a platform can leave the auto-request list stale —
-    neither cancelling the old request nor inducing one for the new tier
-    (2.1.7 report, unresolved) — why the wait rules don't trust the request
-    list to promptly reflect a ghost.
-  - Entity construction is effectively immediate once materials are aboard.
-  - `platform.space_location == nil` as the deliveries-impossible (in-transit)
-    predicate — exact semantics vs `state`/`paused` need in-game checks at a
-    station, mid-route, and paused.
-  - That `targeted_items_deliver` covers the whole delivery window from launch
-    (including pods still on the pad).
+- Ghost provisioning: that `order_upgrade` on an entity-ghost preserves ghost
+  settings and `item_requests`. (Instant application and quality downgrades
+  are verified — see above.)
