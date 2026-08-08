@@ -1,7 +1,7 @@
 {
   "name": "quality-gardener",
   "version": "1.3.0",
-  "title": "Quality Gardener",
+  "title": "Quality Gardener - Automatically upgrade buildings and ghosts",
   "author": "raley",
   "homepage": "https://github.com/aarons/factorio-quality-gardener",
   "description": "Bots automatically upgrade buildings to higher qualities when they are available in logistic storage. Ghosts are matched to the best available quality, to make copy-pasting mixed qualities easier. Configruable and UPS efficient.",
