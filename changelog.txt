@@ -1,50 +1,34 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.3.1
+Date: 20. 08. 2026
+  Bugfixes:
+    - Fixed module upgrade orders sometimes being cancelled or replaced with a same-quality order
+      moments after being placed. Module orders now get the Order Expiry grace period before any
+      adjustment, just like building upgrades.
+---------------------------------------------------------------------------------------------------
 Version: 1.3.0
 Date: 01. 08. 2026
   Features:
-    - Space platform support: platforms are gardened too. A platform has no construction bots - the
-      hub builds and upgrades directly from its own inventory - so each platform is treated as its
-      own network, with the hub inventory (cargo bays included) as the supply. Building and module
-      upgrades, ghost provisioning, and upgrade-request provisioning all work the same as on a
-      planet, and upgrades are only ever ordered against items actually aboard.
-    - Delivery-aware provisioning: before adjusting a ghost, upgrade order, or module request on a
-      platform, the gardener checks for deliveries. An item already on its way up (rocket or cargo
-      pod) is always left alone; one covered by an open request - including the hub's automatic
-      "request missing construction materials" system - is given the new Space Platform Delivery
-      Wait setting (default 300 s) to arrive before the order is adjusted to the best quality
-      aboard. A platform in transit never waits: a turret destroyed by asteroids is refilled from
-      whatever is on hand, because a downgrade now beats a hole in the defenses for the rest of
-      the trip.
-    - New settings: Manage Space Platforms (on by default; turn off to garden planets only) and
-      Space Platform Delivery Wait (0 adjusts immediately, like on a planet).
+    - Space platform support added.  
+    - New settings: Manage Space Platforms (on by default).
   Optimizations:
-    - Networks and platforms are enumerated once per scan round instead of once per network
-      visit; a network changing mid-round is picked up at the next round.
+    - Minor UPS improvement, network and platform changes are scanned for less often.
 ---------------------------------------------------------------------------------------------------
 Version: 1.2.0
 Date: 30. 07. 2026
   Features:
-    - Upgrade-request provisioning: your own upgrade orders (from the upgrade planner) now get the
-      same treatment as ghosts. An order whose target quality is out of stock - including
-      cross-type upgrades like burner inserter to fast inserter - is retargeted to the best
-      stocked quality of the target item, even a lower one, so the swap happens instead of
-      stalling. Only the quality is adjusted, never which building you asked for, and your orders
-      are still never cancelled. Once swapped, the building is an ordinary candidate and is raised
-      back up as better stock appears.
-    - Behavior toggles: the three core behaviors - Manage Factory (upgrades of placed buildings
+    - Upgrade-requests are now managed. An order whose target quality is out of stock is retargeted 
+      to the best stocked quality of the target item, even a lower one, so the swap happens instead of
+      stalling. 
+    - Settings: Manage Factory (upgrades of placed buildings
       and their modules), Manage Ghosts, and Manage Upgrade Requests - each have a runtime map
       setting, all on by default, so any combination can be enabled without a restart.
 ---------------------------------------------------------------------------------------------------
 Version: 1.1.0
 Date: 29. 07. 2026
   Features:
-    - Starved upgrade orders now self-heal. The mod remembers which upgrade marks it placed - and
-      only ever cancels those; your own marks are never touched - and cancels one that has waited
-      longer than the new Order Expiry setting (default 300 s) with its item out of stock, for
-      example after biter damage or your own upgrade passes consumed the stock the order was
-      counting on. The building becomes an ordinary candidate again on the next round. Orders whose
-      item is in stock but queued behind busy bots are left alone. Set the expiry to 0 to keep the
-      old never-cancel behavior.
+    - The mod now remembers which upgrade orders it placed and cancels them if items have been out 
+      of stock for a period of time. The Order Expiry setting can be used to adjust the period of time. 
   Changes:
     - The pass now runs every tick in correspondingly smaller slices; the Entities per Pass setting
       is renamed Entities per Tick (default 1 - the same average throughput as before, delivered
@@ -54,26 +38,12 @@ Date: 29. 07. 2026
 Version: 1.0.0
 Date: 28. 07. 2026
   Features:
-    - Buildings are marked for upgrade when higher-quality versions of them sit in the logistic
-      network, and construction bots swap them out. Each building jumps straight to the best
-      quality on hand, and the displaced item returns to storage where it can lift an even worse
-      building - quality cascades through the base with no manual upgrade-planner passes.
-    - Ghost provisioning: a ghost requesting a quality the network does not stock is retargeted to
-      the best quality the network does have - even a lower one - so the building gets built
-      instead of waiting forever. Once built, it is an ordinary upgrade candidate and is raised
-      back up as better stock appears.
-    - Module provisioning: installed modules with a higher-quality version in storage are swapped
-      by the bots (the displaced module returns to storage), and module requests stuck on an
-      out-of-stock quality are retargeted to the best quality on hand - even a lower one - so the
-      slot gets filled at all. Quality-only: the mod never changes which module is installed or
-      requested, and installed modules are never downgraded.
-    - Everything placeable and upgradable is covered, modded buildings included - coverage is
-      derived from prototypes, with no per-type toggles. Quality chains are walked via the
-      prototype graph, so any quality mod works.
+    - Entities are marked for upgrade when higher-quality versions of them sit in the logistic
+      network. Each entity is upgraded to the best quality on hand.
+    - Ghost provisioning: a ghost requesting a quality the is not on hand is retargeted to
+      the best quality the network has available (even if lower quality). 
+    - Module provisioning: installed modules with a higher-quality version in storage are also managed.
     - Stateless by design: every round reads the world fresh, so nothing can get out of sync.
-      Existing upgrade marks (yours, the mod's, or another mod's) count as demand, so the same
-      item is never promised twice, and no mark is ever cancelled. Upgrades behave exactly like
-      player-ordered native upgrades.
     - Smooth, constant cost: networks are visited round-robin in small slices, orders are capped
       by available construction robots, and a rest between rounds gives bots time to pick up
-      ordered items. Settings: work per slice, a per-item supply reserve, and the round delay.
+      ordered items.

@@ -20,10 +20,13 @@ does not need a backlog entry.
   pending upgrade was cancelled.
 - Planner-equivalent behavior confirmed in-game, recorded once so it stays out
   of the backlog: construction bots pull upgrade items from network supply;
-  `order_upgrade` on an entity-ghost applies instantly and supports quality
-  downgrades; `order_upgrade` on an already-marked entity replaces the
-  existing mark's target in place; `cancel_upgrade` on an order whose item a
-  bot is already carrying recalls the bot and returns the item to storage.
+  `order_upgrade` on an entity-ghost applies instantly, supports quality
+  downgrades, and preserves the ghost's settings — recipe *quality* included
+  (a separate field from the recipe, and the one a destroy-and-recreate
+  substitution loses; verified 2026-08-18); `order_upgrade` on an
+  already-marked entity replaces the existing mark's target in place;
+  `cancel_upgrade` on an order whose item a bot is already carrying recalls
+  the bot and returns the item to storage.
 - `LuaLogisticNetwork.available_construction_robots` — read-only uint32, "number of
   construction robots available for a job" (idle bots; busy ones self-exclude).
 - `"not-upgradable"` is an `EntityPrototypeFlag` ("can't be selected by the upgrade
@@ -115,6 +118,4 @@ does not need a backlog entry.
 
 Verify each, then move it up into the verified list.
 
-- Ghost provisioning: that `order_upgrade` on an entity-ghost preserves ghost
-  settings and `item_requests`. (Instant application and quality downgrades
-  are verified — see above.)
+- Nothing outstanding.

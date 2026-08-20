@@ -378,10 +378,24 @@ end
 -- A pending proxy on a built entity. Stocked request rows consume supply as
 -- demand; a starved module row is retargeted in place (insert_plan is
 -- read-write) to the best stocked tier of the same module. Non-module rows
--- (fuel, ammo) are never retargeted. On a platform the wait clock runs at
--- proxy granularity: one entry keyed by the proxy, its target recorded from
--- the first starved module row.
+-- (fuel, ammo) are never retargeted. A ledgered proxy — one whose module
+-- rows are our orders — holds its starved rows unretargeted until the entry
+-- outlives order-expiry-seconds: the same grace building marks get, covering
+-- the window where an ordered module rides a bot and reads as out of stock.
+-- On a platform the wait clock runs at proxy granularity: one entry keyed by
+-- the proxy, its target recorded from the first starved module row.
 local function examine_proxy(network_snapshot, proxy)
+  local entry = storage.order_ledger[proxy.unit_number]
+  if entry then
+    local expiry_ticks = settings.global["order-expiry-seconds"].value * 60
+    if expiry_ticks > 0 and game.tick - entry.order_tick >= expiry_ticks then
+      -- The grace period is over: drop the entry, and the rows below get
+      -- the ordinary starved-row treatment (acting re-stamps a fresh one).
+      storage.order_ledger[proxy.unit_number] = nil
+      entry = nil
+    end
+  end
+  local retarget_held = entry ~= nil
   local plans = proxy.insert_plan
   local changed = false
   -- The wait rules run once per proxy, against the first starved module
@@ -398,6 +412,7 @@ local function examine_proxy(network_snapshot, proxy)
       if stock_count(by_tier, tier) > 0 then
         stock_consume(by_tier, tier, count)
       elseif network_snapshot.manage_factory
+        and not retarget_held
         and count > 0 and count <= network_snapshot.order_budget
         and storage.config.module_item[item_name] then
         if not starved_module_row_seen then
@@ -417,6 +432,12 @@ local function examine_proxy(network_snapshot, proxy)
   end
   if changed then
     proxy.insert_plan = plans
+    -- The retargeted rows are our orders now: stamp (or refresh) the entry
+    -- so they get the same grace before any further retarget.
+    storage.order_ledger[proxy.unit_number] = {
+      entity = proxy,
+      order_tick = game.tick,
+    }
   end
   if changed or not starved_module_row_seen then
     -- Acted, or no starved module row this visit: any wait clock is stale.
@@ -474,7 +495,7 @@ local function examine_modules(network_snapshot, entity)
   end
 
   if insert_plans then
-    entity.surface.create_entity{
+    local swap_proxy = entity.surface.create_entity{
       name = "item-request-proxy",
       position = entity.position,
       force = entity.force,
@@ -482,6 +503,14 @@ local function examine_modules(network_snapshot, entity)
       modules = insert_plans,
       removal_plan = removal_plans,
     }
+    if swap_proxy and swap_proxy.valid then
+      -- Ledger the swap proxy: membership holds its starved rows against
+      -- retargeting until order expiry (see examine_proxy).
+      storage.order_ledger[swap_proxy.unit_number] = {
+        entity = swap_proxy,
+        order_tick = game.tick,
+      }
+    end
   end
 end
 
@@ -659,11 +688,13 @@ end
 
 -- One budgeted step of the between-rounds sweep over both ledgers in
 -- sequence (pass.sweeping names the current one): prune an entry when its
--- entity is gone — and, for order entries, when no longer marked. Wait
--- entries skip the mark check: they attach to ghosts and proxies, where
--- to_be_upgraded() is meaningless. Entries are deleted only here and at
--- examine time, never while the sweep cursor points at them, so resuming
--- next() from the stored key is safe.
+-- entity is gone — and, for order entries on marked buildings, when no
+-- longer marked. Order entries on module proxies live while the proxy does
+-- (a proxy vanishes on fulfillment or cancellation, exactly the lifetime
+-- the hold should have), and wait entries skip the mark check too: both
+-- attach to entities where to_be_upgraded() is meaningless. Entries are
+-- deleted only here and at examine time, never while the sweep cursor
+-- points at them, so resuming next() from the stored key is safe.
 local function sweep_ledger_step(pass)
   local ledger_name = pass.sweeping
   local ledger_name_following =
@@ -683,7 +714,9 @@ local function sweep_ledger_step(pass)
   end
   pass.sweep_cursor = (next(ledger, key))
   if not (entry.entity.valid
-    and (ledger_name ~= "order_ledger" or entry.entity.to_be_upgraded())) then
+    and (ledger_name ~= "order_ledger"
+      or entry.entity.type == "item-request-proxy"
+      or entry.entity.to_be_upgraded())) then
     ledger[key] = nil
   end
   if pass.sweep_cursor == nil then

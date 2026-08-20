@@ -54,7 +54,9 @@ work. No manual upgrade-planner passes needed.
   quality is out of stock) is retargeted to the best quality on hand, even a lower
   one — a filled slot now beats an empty one — then raised back up as better stock
   appears. Installed modules are only ever upgraded, never downgraded, and only the
-  quality moves: the mod never changes which module you chose.
+  quality moves: the mod never changes which module you chose. The mod's own module
+  orders get the order-expiry grace before any adjustment, so an order whose module
+  is already riding a bot is left to complete rather than churned.
 
 Everything placeable and upgradable is covered — assemblers down to belts, pipes, and
 poles. Coverage is derived from prototypes (anything placed from an item that the game
@@ -97,7 +99,7 @@ default, so any combination can be switched off at runtime.
 | Entities per tick | 1 | Work budget per tick; raise for faster processing at the expense of UPS |
 | Reserve per item | 0 | Spares kept untouched per item-quality |
 | Round delay | 20 s | Rest between rounds so bots can pick up ordered items |
-| Order expiry | 300 s | Cancel the mod's own starved orders after this long out of stock; 0 = never |
+| Order expiry | 300 s | Grace for the mod's own starved orders: after this long out of stock, marks are cancelled and module orders become adjustable; 0 = never |
 | Space platform delivery wait | 300 s | How long a platform ghost/order waits for a delivery before being adjusted; 0 = adjust immediately |
 
 ## Compatibility
@@ -108,9 +110,10 @@ support is simply inert.
 
 The mod keeps almost no state about your base — every round reads the world fresh,
 so there is nothing to get out of sync. The exceptions are a small ledger of the
-upgrade orders the mod itself placed, kept so that only its own marks are ever
-expired (losing it is harmless — those orders simply never expire), and on space
-platforms a table of delivery-wait clocks (losing it just restarts the waits).
+upgrade and module orders the mod itself placed, kept so that only its own marks
+are ever expired and its fresh module orders are not churned (losing it is
+harmless — those orders simply never expire), and on space platforms a table of
+delivery-wait clocks (losing it just restarts the waits).
 `/quality-gardener-init` resets the pass cursor and both ledgers if you ever want a
 clean restart.
 

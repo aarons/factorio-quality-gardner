@@ -298,3 +298,16 @@ The same change funneled platform wait-clock clearing through one helper
 (`clear_platform_wait`) and gave `platform_retarget_allowed` an off-platform
 early return, so the examine arms read as policy rather than ledger
 bookkeeping — useful groundwork if the wait mechanism is revisited.
+
+## 2026-08-20 — Ledgered module proxies hold their starved rows (1.3.1)
+
+A freshly ordered module rides a bot for a while, and during the flight it
+reads as out of stock — so the starved-row retarget arm would rewrite our
+own order moments after placing it, sometimes to the same quality. The fix
+extends the order ledger's meaning: module-swap proxies we create, and
+proxies whose starved rows we retarget, are ledgered, and membership holds
+their starved rows unretargeted until the entry outlives
+`order-expiry-seconds` — the same grace building marks get. Expiry only
+ends the hold, never cancels the proxy; the rows then get the ordinary
+starved-row treatment, and acting re-stamps a fresh entry. Losing the
+ledger stays safe: an orphaned proxy just loses its hold early.
