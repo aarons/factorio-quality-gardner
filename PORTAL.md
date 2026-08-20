@@ -1,45 +1,64 @@
-__Summary__
+**Summary**
 
-This is an automated helper for factories with mixed quality buildings. Ghosts are matched to the best-available item in logistic storage, and bots automatically upgrade buildings to higher qualities when they become available.
+Bot's automatically upgrade the factory when higher quality buildings become available. Ghosts are matched to the best-available item, and destroyed buildings are replaced with best available quality. 
 
-__Description__
 
-# **Quality Relaxation Time**
 
-This mod makes dealing with mixed quality buildings easier. 
+ 
 
-Bots automatically upgrade buildings (and other entities) when higher qualities are available in logistic storage. 
+**Description**
 
-They will also replace ghosts with the next best quality when the requested item is *not* in inventory. So they will lower the quality of ghosts in some cases, but then once higher quality buildings show up they get upgraded.
+# **# Quality Relaxation Time**
 
-This makes copy-pasting parts of the factory with mixed quality levels a non-issue, you never need to worry about whether something is in stock in that exact quality. 
+**This mod makes dealing with mixed quality buildings easier.** 
 
-## **Details**
+**Bots automatically upgrade buildings (and other entities) when higher qualities are available in logistic storage.** 
+
+**They will also replace ghosts with the next best quality when the requested item is *not* in inventory. So they will lower the quality of ghosts in some cases, but then once higher quality buildings show up they get upgraded.**
+
+**This makes copy-pasting parts of the factory with mixed quality levels a non-issue, you never need to worry about whether something is in stock in that exact quality.** 
+
+**## Details**
 
 **Only quality is managed**
 
-A speed-module-1 can get upgraded to a higher quality speed-module-1, but won't get changed to a speed-module-2. Same principle applies to assembly machines, belts, and all other entities. 
+**A speed-module-1 can get upgraded to a higher quality speed-module-1, but won't get changed to a speed-module-2. Same principle applies to assembly machines, belts, and all other entities.** 
 
-If you would like a mod that will upgrade yellow belts to red belts, or assembler-1 to assembler-2, check out [Belt Upgrader](https://mods.factorio.com/mod/BeltUpgrader), which handles those scenarios. 
+**If you would like a mod that will upgrade yellow belts to red belts, or assembler-1 to assembler-2, check out [Belt Upgrader]([https://mods.factorio.com/mod/BeltUpgrader](https://mods.factorio.com/mod/BeltUpgrader)), which handles those scenarios.** 
 
 **UPS Efficient**
 
-By default it evaluates 1 entity per tick (can be adjusted in settings), and only checks logistic network storage once at the beginning of a pass. 
+**This mod is written in a way to minimize UPS impact.** 
 
-A single check of network storage could lead to over-provisioning upgrade requests if the inventory lowers while the Gardner is evaluating buildings. They won't leave things in a messy state; old upgrade requests that have been sitting for a while will get cleaned up (default 5 minutes, configurable). 
+**It will eventually visit every building in a logistic network, but it's not made for instant response to events. It handles a few entities per tick (configurable) to spread out the processing load and avoid lag-spikes.** 
 
-Any upgrade ordered by the player will be left alone, to preserve intentional base changes.
+**Designed for Stability**
 
-## **Beta Version**
+**The mod is designed to work in a stable and consistent way. It intentionally avoids tracking the state of entities beyond whether an upgrade was ordered by the mod or not.** 
 
-Normally I play test a lot more before releasing, but I don't have as much playtime in the near future, and the mod feels super helpful. There are likely some unforeseen issues that will still need to be fixed. I do have the time to make patches, so let me know if you find any issues! 
+**This avoids a number of issues that can come up if other mods change the world in unexpected ways.** 
 
-## **Planned Features**
+**General Algorithm**
 
-- Support for space platforms 
-- Prefer upgrading the busiest machines first (currently it's just whatever comes up first in the search)
-- Ability to turn off ghost matching to inventory 
-- Support for shiny quality mod and mods that add hidden qualities 
-- Support for ignoring/skipping certain logistic networks 
-- Any UPS performance tuning ideas or suggestions that come up
+**Probably too low level for the mod description page, but I find it interesting :D And hopefully it helps future mod authors with their designs.** 
+
+**The gardener checks for available inventory and bots in a network once, then evaluates each entity within that network (assemblers, inserters, belts, etc) one at a time to see if an upgrade can be ordered.** 
+
+**On future visits, if an order that it placed has been sitting for a while (the time is configurable) it will cancel the upgrade request. This helps in situations where the inventory changed unexpectedly (such as the player picking up a stack of items or a chest getting destroyed).** 
+
+**The alternative is to read logistic inventory more frequently, but that would introduce a much larger impact on UPS. This slow and steady approach means that the gardener is always active and making adjustments, and waits an appropriate amount of time to cancel adjustments without having to explicitly track the state of the world and it's entities.**
+
+**## Feedback**
+
+**It's always great to hear feedback, ideas, and issues. Please feel free to reach out in the comments/forum section!**
+
+**## Future Features**
+
+**There are some things that would be nice to add in the future.** 
+
+**- Prefer upgrading the busiest machines first (currently it's just whatever comes up first in the search)**
+
+**- Support for the Shiny Quality Mod (and other mods that add hidden qualities)**
+
+**- Support for ignoring/skipping specified logistic networks**
 
