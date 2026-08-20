@@ -32,8 +32,8 @@ data:extend({
         type = "int-setting",
         name = "entities-per-tick",
         setting_type = "runtime-global",
-        default_value = 1,
-        minimum_value = 1,
+        default_value = 10,
+        minimum_value = 0,
         maximum_value = 1000,
         order = "b-0"
     },
