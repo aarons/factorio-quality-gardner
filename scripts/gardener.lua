@@ -1,9 +1,6 @@
 --[[
-gardener.lua
-
-The matching engine: a budgeted, round-robin scan pass over logistic networks
-and space platforms. Player-facing behavior is in README.md, design invariants
-in CLAUDE.md, rationale and history in docs/decisions.md.
+Tracks inventory and applies upgrade orders within logistic networks and
+space platforms.
 ]]
 
 local qualities = require("scripts.qualities")
@@ -54,8 +51,8 @@ local function read_supply(contents)
   return supply
 end
 
--- The three manage-* toggles, snapshotted for one visit; nil when all are
--- off and the visit should be skipped.
+-- The manage-* toggles, snapshotted for one visit; nil when all are off
+-- and the visit should be skipped.
 local function read_manage_toggles()
   local toggles = {
     manage_factory = settings.global["manage-factory"].value,
@@ -69,10 +66,8 @@ local function read_manage_toggles()
   return toggles
 end
 
--- The snapshot scaffold shared by networks and platforms: the scan-cursor
--- start state, the snapshotted toggles, and the fields every visit carries.
--- Callers append their own fields (network: cells; platform: the
--- delivery-wait data and the platform flag).
+-- The snapshot scaffold shared by networks and platforms: the fields every
+-- visit carries. Callers append their own.
 local function new_network_snapshot(toggles, surface_index, supply, order_budget, cell_count)
   return {
     surface_index = surface_index,
@@ -174,8 +169,8 @@ local function enter_platform(platform_index)
   if not toggles then return nil end
 
   -- Spendable stock is hub_main only (cargo bays extend it; hub_trash is
-  -- items leaving). Orders are placed only against existing stock
-  -- never against inbound or requested items.
+  -- items leaving). Orders are placed only against existing stock — never
+  -- against inbound or requested items.
   local hub_inventory = hub.get_inventory(defines.inventory.hub_main)
   if not hub_inventory then return nil end
   local point = hub.get_logistic_point(
@@ -274,8 +269,7 @@ end
 -- Bookkeeping counterpart to the wait rules above: drop an entity's wait
 -- clock, called when its target is seen stocked or after acting on it. An
 -- allowed retarget alone never clears — an elapsed clock stays elapsed
--- until the pass acts. Off-platform this is a no-op: planet passes never
--- touch the wait ledger.
+-- until the pass acts.
 local function clear_platform_wait(network_snapshot, unit_number)
   if network_snapshot.platform then
     storage.platform_wait_ledger[unit_number] = nil
@@ -376,14 +370,12 @@ local function plan_module_count(plan)
 end
 
 -- A pending proxy on a built entity. Stocked request rows consume supply as
--- demand; a starved module row is retargeted in place (insert_plan is
--- read-write) to the best stocked tier of the same module. Non-module rows
--- (fuel, ammo) are never retargeted. A ledgered proxy — one whose module
--- rows are our orders — holds its starved rows unretargeted until the entry
--- outlives order-expiry-seconds: the same grace building marks get, covering
--- the window where an ordered module rides a bot and reads as out of stock.
--- On a platform the wait clock runs at proxy granularity: one entry keyed by
--- the proxy, its target recorded from the first starved module row.
+-- demand; a starved module row is retargeted in place to the best stocked
+-- tier of the same module (non-module rows, like fuel and ammo, never are).
+-- A ledgered proxy holds its starved rows until the entry outlives
+-- order-expiry-seconds, covering the window where an ordered module rides a
+-- bot and reads as out of stock. On a platform, one wait clock runs per
+-- proxy.
 local function examine_proxy(network_snapshot, proxy)
   local entry = storage.order_ledger[proxy.unit_number]
   if entry then
@@ -586,7 +578,6 @@ local function examine_marked(network_snapshot, entity)
   end
 end
 
--- Examine one scanned entity.
 local function examine(network_snapshot, entity)
   if not entity.valid then return end
   if entity.force.name ~= "player" then return end
@@ -691,8 +682,9 @@ end
 -- entity is gone — and, for order entries on marked buildings, when no
 -- longer marked. Order entries on module proxies live while the proxy does
 -- (a proxy vanishes on fulfillment or cancellation, exactly the lifetime
--- the hold should have), and wait entries skip the mark check too: both
--- attach to entities where to_be_upgraded() is meaningless. Entries are
+-- the hold should have). Wait entries are pruned on validity alone: they
+-- can attach to ghosts and proxies, where a mark check is meaningless.
+-- Entries are
 -- deleted only here and at examine time, never while the sweep cursor
 -- points at them, so resuming next() from the stored key is safe.
 local function sweep_ledger_step(pass)
@@ -755,7 +747,7 @@ function gardener.on_pass()
       network_snapshot.entity_cursor = network_snapshot.entity_cursor + 1
       examine(network_snapshot, entity)
       if network_snapshot.order_budget <= 0 then
-        -- Order budget spent: abandon the rest of this network
+        -- Order budget spent: abandon the rest of this network.
         pass.network_snapshot = nil
       end
     elseif network_snapshot.cell_cursor > network_snapshot.cell_count then
